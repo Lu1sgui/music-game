@@ -1,5 +1,5 @@
 .env
-.next/
+
 node_modules/
 *.log
 schema.sql
