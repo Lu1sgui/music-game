@@ -1,0 +1,297 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  GM
+  PLAYER
+}
+
+// Core state machine for the weekly cycle
+// Flow: PENDING → OPEN → CLOSED → REVEALED → ARCHIVED
+enum CycleStatus {
+  PENDING   // created, not yet open for submissions
+  OPEN      // accepting submissions
+  CLOSED    // submissions locked, GM is scoring
+  REVEALED  // results and song owners are public
+  ARCHIVED  // fully historic, visible in archive
+}
+
+enum Platform {
+  SPOTIFY
+  YOUTUBE
+}
+
+// All possible sources of points — append-only ledger entries
+enum PointType {
+  PODIUM_1ST
+  PODIUM_2ND
+  PODIUM_3RD
+  PARTICIPATION
+  STREAK_BONUS
+  ACHIEVEMENT_BONUS
+  CHIP_BONUS    // positive chip effects: Swords Dance multiplier, Mega Drain siphon
+  CHIP_PENALTY  // negative chip effects: Skull Bash steal, Screech reduction
+}
+
+enum BadgeTier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+  SPECIAL
+}
+
+enum ConditionType {
+  SUBMISSION_COUNT // total songs submitted across all cycles
+  PODIUM_COUNT     // times placed in top 3
+  TOP_1_COUNT      // times placed 1st specifically
+  STREAK_WEEKS     // consecutive weeks participated
+  GM_COUNT         // times served as Game Master
+  SPECIAL          // triggered manually or by custom event logic
+}
+
+enum ChipRarity {
+  COMMON
+  RARE
+  LEGENDARY
+}
+
+// One enum value per chip — drives the chip resolution engine
+enum ChipEffect {
+  // Common
+  FLASH
+  SMOKESCREEN
+  SUBSTITUTE
+  RECOVER
+  SWIFT
+  HAZE
+  NIGHT_SHADE
+  // Rare
+  SWORDS_DANCE
+  DOUBLE_TEAM
+  DISABLE
+  REFLECT
+  MIMIC
+  CONFUSE_RAY
+  LEECH_SEED
+  // Legendary
+  MEGA_DRAIN
+  SCREECH
+  METRONOME
+  SPORE
+  BIDE
+  SKULL_BASH
+}
+
+enum ActivationStatus {
+  PENDING   // declared, effect not yet resolved
+  RESOLVED  // effect has been applied
+  CANCELLED // nullified by Haze, Disable, or Reflect
+}
+
+// ─── Core Tables ─────────────────────────────────────────────────────────────
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique @db.VarChar(30)
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         Role     @default(PLAYER)
+  totalPoints  Int      @default(0) @map("total_points") // denormalized SUM of points_ledger — updated on every INSERT
+  streakWeeks  Int      @default(0) @map("streak_weeks") // consecutive weeks with a submission
+  bideStored   Boolean  @default(false) @map("bide_stored") // true when Bide was declared last week
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  submissions      Submission[]
+  pointsLedger     PointsLedger[]
+  userAchievements UserAchievement[]
+  userChips        UserChip[]
+  chipActivations  ChipActivation[] @relation("Activator")
+  targetedByChips  ChipActivation[] @relation("Target")
+  gmCycles         WeekCycle[]      @relation("GM")
+
+  @@map("users")
+}
+
+model WeekCycle {
+  id               Int         @id @default(autoincrement())
+  weekNumber       Int         @map("week_number") // ISO week number (1–52)
+  year             Int
+  theme            String?     @db.VarChar(100)
+  themeDescription String?     @map("theme_description") @db.Text
+  gmUserId         Int?        @map("gm_user_id") // null until Admin assigns
+  status           CycleStatus @default(PENDING)
+  opensAt          DateTime    @map("opens_at")
+  closesAt         DateTime    @map("closes_at")
+  revealsAt        DateTime    @map("reveals_at") // Friday reveal
+  archivedAt       DateTime?   @map("archived_at")
+  createdAt        DateTime    @default(now()) @map("created_at")
+
+  gm              User?            @relation("GM", fields: [gmUserId], references: [id])
+  submissions     Submission[]
+  cycleResults    CycleResult[]
+  pointsLedger    PointsLedger[]
+  chipActivations ChipActivation[]
+
+  @@unique([weekNumber, year])
+  @@map("week_cycles")
+}
+
+model Submission {
+  id              Int      @id @default(autoincrement())
+  userId          Int      @map("user_id")
+  cycleId         Int      @map("cycle_id")
+  songTitle       String   @map("song_title")
+  songArtist      String   @map("song_artist")
+  platform        Platform
+  url             String
+  platformTrackId String?  @map("platform_track_id") @db.VarChar(100) // Spotify/YouTube track ID for future embed
+  submittedAt     DateTime @default(now()) @map("submitted_at")
+
+  user        User         @relation(fields: [userId], references: [id])
+  cycle       WeekCycle    @relation(fields: [cycleId], references: [id])
+  cycleResult CycleResult? // null until GM scores this submission
+
+  @@unique([userId, cycleId]) // one song per user per week — enforced at DB level
+  @@map("submissions")
+}
+
+model CycleResult {
+  id           Int      @id @default(autoincrement())
+  cycleId      Int      @map("cycle_id")
+  submissionId Int      @unique @map("submission_id")
+  userId       Int      @map("user_id") // denormalized from submission — avoids JOIN on leaderboard queries
+  position     Int      // 1, 2, or 3
+  gmNotes      String?  @map("gm_notes") @db.Text
+  awardedAt    DateTime @default(now()) @map("awarded_at")
+
+  cycle      WeekCycle  @relation(fields: [cycleId], references: [id])
+  submission Submission @relation(fields: [submissionId], references: [id])
+
+  @@map("cycle_results")
+}
+
+// Append-only points log — never update, only insert
+// users.totalPoints is a denormalized cache; this table is the source of truth
+model PointsLedger {
+  id          Int       @id @default(autoincrement())
+  userId      Int       @map("user_id")
+  cycleId     Int?      @map("cycle_id") // null for achievement bonuses without a specific cycle
+  amount      Int       // can be negative (Skull Bash penalty, Screech reduction, etc.)
+  type        PointType
+  description String?   @db.VarChar(200)
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  user  User       @relation(fields: [userId], references: [id])
+  cycle WeekCycle? @relation(fields: [cycleId], references: [id])
+
+  @@index([userId])
+  @@index([cycleId])
+  @@map("points_ledger")
+}
+
+// ─── Achievement System ──────────────────────────────────────────────────────
+
+model Achievement {
+  id             Int           @id @default(autoincrement())
+  slug           String        @unique @db.VarChar(50)
+  name           String        @db.VarChar(50)
+  description    String        @db.Text
+  badgeTier      BadgeTier     @map("badge_tier")
+  conditionType  ConditionType @map("condition_type")
+  conditionValue Int           @map("condition_value") // the threshold to unlock
+  pointsBonus    Int           @default(0) @map("points_bonus")
+  rewardChipSlug String?       @map("reward_chip_slug") @db.VarChar(30) // chip awarded on unlock
+  isHidden       Boolean       @default(false) @map("is_hidden") // hidden from UI until earned
+
+  userAchievements UserAchievement[]
+
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id            Int      @id @default(autoincrement())
+  userId        Int      @map("user_id")
+  achievementId Int      @map("achievement_id")
+  cycleId       Int?     @map("cycle_id") // context cycle when earned
+  earnedAt      DateTime @default(now()) @map("earned_at")
+
+  user        User        @relation(fields: [userId], references: [id])
+  achievement Achievement @relation(fields: [achievementId], references: [id])
+
+  @@unique([userId, achievementId]) // each achievement earned at most once per player
+  @@map("user_achievements")
+}
+
+// ─── Chip System ─────────────────────────────────────────────────────────────
+
+model Chip {
+  id             Int        @id @default(autoincrement())
+  slug           String     @unique @db.VarChar(30)
+  name           String     @db.VarChar(30)
+  description    String     @db.Text
+  effectType     ChipEffect @map("effect_type")
+  requiresTarget Boolean    @default(false) @map("requires_target")
+  rarity         ChipRarity
+
+  userChips       UserChip[]
+  chipActivations ChipActivation[]
+
+  @@map("chips")
+}
+
+// Chip inventory — how many of each chip a player holds
+model UserChip {
+  id             Int       @id @default(autoincrement())
+  userId         Int       @map("user_id")
+  chipId         Int       @map("chip_id")
+  quantity       Int       @default(0) // max 2 of the same chip, max 5 total in inventory
+  lastAcquiredAt DateTime? @map("last_acquired_at")
+
+  user User @relation(fields: [userId], references: [id])
+  chip Chip @relation(fields: [chipId], references: [id])
+
+  @@unique([userId, chipId])
+  @@map("user_chips")
+}
+
+// Log of every chip activation per cycle
+model ChipActivation {
+  id           Int              @id @default(autoincrement())
+  userId       Int              @map("user_id")
+  chipId       Int              @map("chip_id")
+  cycleId      Int              @map("cycle_id")
+  targetUserId Int?             @map("target_user_id") // required when chip.requiresTarget = true
+  activatedAt  DateTime         @default(now()) @map("activated_at")
+  resolvedAt   DateTime?        @map("resolved_at")
+  status       ActivationStatus @default(PENDING)
+  effectData   Json?            @map("effect_data")
+  // effectData payload examples:
+  // Leech Seed: { "weeksRemaining": 3 }
+  // Spore:      { "lockedCycleId": 42 }
+  // Metronome:  { "rolledEffect": "SWORDS_DANCE", "rolledChipId": 8 }
+  // Screech:    { "originalPosition": 1, "adjustedPosition": 2, "pointsDiff": -70 }
+  // Skull Bash: { "activatorScore": 150, "targetScore": 80, "stolen": 30 }
+
+  user       User      @relation("Activator", fields: [userId], references: [id])
+  chip       Chip      @relation(fields: [chipId], references: [id])
+  cycle      WeekCycle @relation(fields: [cycleId], references: [id])
+  targetUser User?     @relation("Target", fields: [targetUserId], references: [id])
+
+  @@index([cycleId, status]) // queried heavily during chip resolution
+  @@map("chip_activations")
+}
