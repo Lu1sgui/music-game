@@ -250,7 +250,7 @@ export async function resolveChips(
     where: {
       status: ActivationStatus.RESOLVED,
       chip: { effectType: ChipEffect.LEECH_SEED },
-      effectData: { path: '$.weeksRemaining', gt: 0 },
+      effectData: { path: ['weeksRemaining'], gt: 0 },
     },
     include: { chip: true },
   })
@@ -281,7 +281,7 @@ export async function isSporeLocked(userId: number, cycleId: number): Promise<bo
     where: {
       status: ActivationStatus.RESOLVED,
       chip: { effectType: ChipEffect.SPORE },
-      effectData: { path: '$.lockedCycleId', equals: cycleId },
+      effectData: { path: ['lockedCycleId'], equals: cycleId },
       targetUserId: userId,
     },
   })

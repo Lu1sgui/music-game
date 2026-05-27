@@ -1,152 +1,95 @@
 // app/api/cycle/current/route.ts
-// Returns the current cycle with different data depending on status:
-// PENDING/OPEN/CLOSED → theme + count (submissions anonymous)
-// REVEALED/ARCHIVED   → full results + all submissions revealed
-
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { CycleStatus, ChipEffect, ActivationStatus } from '@prisma/client'
-import { getAuth, ok } from '@/lib/api'
+import { getTokenPayload } from '@/lib/auth'
 
 export async function GET(request: NextRequest) {
-  const payload = getAuth(request)
+  try {
+    const payload = getTokenPayload(request)
 
-  // Get current active cycle (any non-archived status)
-  const cycle = await prisma.weekCycle.findFirst({
-    where: { status: { not: CycleStatus.ARCHIVED } },
-    orderBy: { createdAt: 'desc' },
-    include: {
-      gm: { select: { id: true, username: true } },
-      _count: { select: { submissions: true } },
-    },
-  })
-
-  if (!cycle) {
-    // No active cycle — return last archived for reference
-    const last = await prisma.weekCycle.findFirst({
-      where: { status: CycleStatus.ARCHIVED },
+    const cycle = await prisma.weekCycle.findFirst({
+      where: { status: { not: CycleStatus.ARCHIVED } },
       orderBy: { createdAt: 'desc' },
-      include: {
-        cycleResults: {
-          orderBy: { position: 'asc' },
-          include: {
-            submission: { include: { user: { select: { username: true } } } },
-          },
-        },
-      },
-    })
-    return ok({ cycle: null, previousCycle: last })
-  }
-
-  // Base response — always safe to return
-  const base = {
-    id: cycle.id,
-    weekNumber: cycle.weekNumber,
-    year: cycle.year,
-    theme: cycle.theme,
-    themeDescription: cycle.themeDescription,
-    status: cycle.status,
-    opensAt: cycle.opensAt,
-    closesAt: cycle.closesAt,
-    revealsAt: cycle.revealsAt,
-    gm: cycle.gm,
-    submissionCount: cycle._count.submissions,
-  }
-
-  // Add authenticated user context
-  let userContext = {}
-  if (payload) {
-    const mySubmission = await prisma.submission.findUnique({
-      where: { userId_cycleId: { userId: payload.userId, cycleId: cycle.id } },
+      include: { gm: { select: { id: true, username: true } }, _count: { select: { submissions: true } } },
     })
 
-    // Check if user has Flash chip active this cycle
-    const flashActive = await prisma.chipActivation.findFirst({
-      where: {
-        userId: payload.userId,
-        cycleId: cycle.id,
-        status: ActivationStatus.RESOLVED,
-        chip: { effectType: ChipEffect.FLASH },
-      },
-    })
-
-    // Check active Leech Seed draining from this user
-    const leechSeedsOnMe = await prisma.chipActivation.findMany({
-      where: {
-        targetUserId: payload.userId,
-        status: ActivationStatus.RESOLVED,
-        chip: { effectType: ChipEffect.LEECH_SEED },
-      },
-      include: { user: { select: { username: true } } },
-    })
-
-    userContext = {
-      mySubmission,
-      flashActive: !!flashActive,
-      leechSeedsOnMe: leechSeedsOnMe.map((s) => ({
-        from: s.user.username,
-        data: s.effectData,
-      })),
-    }
-
-    // Flash reveals all submissions for this user
-    if (flashActive && cycle.status === CycleStatus.OPEN) {
-      const allSubmissions = await prisma.submission.findMany({
-        where: { cycleId: cycle.id },
-        include: { user: { select: { username: true } } },
+    if (!cycle) {
+      const last = await prisma.weekCycle.findFirst({
+        where: { status: CycleStatus.ARCHIVED }, orderBy: { createdAt: 'desc' },
+        include: { cycleResults: { orderBy: { position: 'asc' }, include: { submission: { include: { user: { select: { username: true } } } } } } },
       })
-      return ok({ ...base, ...userContext, submissions: allSubmissions })
+      return NextResponse.json({ cycle: null, previousCycle: last })
     }
-  }
 
-  // REVEALED or ARCHIVED — return full public results
-  if (
-    cycle.status === CycleStatus.REVEALED ||
-    cycle.status === CycleStatus.ARCHIVED
-  ) {
-    const [results, submissions, activations] = await Promise.all([
-      prisma.cycleResult.findMany({
+    const base = {
+      id: cycle.id, weekNumber: cycle.weekNumber, year: cycle.year,
+      theme: cycle.theme, themeDescription: cycle.themeDescription,
+      status: cycle.status, opensAt: cycle.opensAt, closesAt: cycle.closesAt,
+      revealsAt: cycle.revealsAt, gm: cycle.gm, submissionCount: cycle._count.submissions,
+    }
+
+    const isAdmin = payload?.role === 'ADMIN'
+    const isCurrentGM = !!(payload && cycle.gmUserId && payload.userId === cycle.gmUserId)
+
+    // GM and Admin always see all submissions (for scoring and flash chip)
+    if (isAdmin || isCurrentGM) {
+      const submissions = await prisma.submission.findMany({
         where: { cycleId: cycle.id },
-        orderBy: { position: 'asc' },
+        include: { user: { select: { username: true, avatarSeed: true, avatarStyle: true } } },
+        orderBy: { submittedAt: 'asc' },
+      })
+      const mySubmission = payload ? await prisma.submission.findUnique({
+        where: { userId_cycleId: { userId: payload.userId, cycleId: cycle.id } },
+      }) : null
+      return NextResponse.json({ ...base, submissions, mySubmission })
+    }
+
+    // Player context
+    let userContext = {}
+    if (payload) {
+      const mySubmission = await prisma.submission.findUnique({
+        where: { userId_cycleId: { userId: payload.userId, cycleId: cycle.id } },
+      })
+      // Get ALL chip activations for this user this cycle
+      const myActivation = await prisma.chipActivation.findFirst({
+        where: { userId: payload.userId, cycleId: cycle.id },
         include: {
-          submission: { include: { user: { select: { username: true } } } },
+          chip: true,
+          targetUser: { select: { username: true } },
         },
-      }),
-      prisma.submission.findMany({
-        where: { cycleId: cycle.id },
-        include: { user: { select: { username: true } } },
-      }),
-      // Smokescreen — hide identity for users who activated it
-      prisma.chipActivation.findMany({
-        where: {
-          cycleId: cycle.id,
-          status: ActivationStatus.RESOLVED,
-          chip: { effectType: ChipEffect.SMOKESCREEN },
-        },
-        select: { userId: true },
-      }),
-    ])
+        orderBy: { activatedAt: 'desc' },
+      })
+      const flashActive = myActivation?.chip?.effectType === ChipEffect.FLASH &&
+        myActivation?.status === ActivationStatus.RESOLVED
+      userContext = { mySubmission, flashActive: !!flashActive, myActivation }
 
-    const smokescreenedIds = new Set(activations.map((a) => a.userId))
+      if (flashActive && cycle.status === CycleStatus.OPEN) {
+        const allSubs = await prisma.submission.findMany({
+          where: { cycleId: cycle.id }, include: { user: { select: { username: true } } },
+        })
+        return NextResponse.json({ ...base, ...userContext, submissions: allSubs })
+      }
+    }
 
-    // Mask identity for Smokescreen users
-    const maskedResults = results.map((r) => ({
-      ...r,
-      submission: {
-        ...r.submission,
-        user: smokescreenedIds.has(r.submission.userId)
-          ? { username: '???' }
-          : r.submission.user,
-      },
-    }))
+    // Public revealed/archived
+    if (cycle.status === CycleStatus.REVEALED || cycle.status === CycleStatus.ARCHIVED) {
+      const [results, submissions, smokescreenActs] = await Promise.all([
+        prisma.cycleResult.findMany({ where: { cycleId: cycle.id }, orderBy: { position: 'asc' }, include: { submission: { include: { user: { select: { username: true } } } } } }),
+        prisma.submission.findMany({ where: { cycleId: cycle.id }, include: { user: { select: { username: true } } } }),
+        prisma.chipActivation.findMany({ where: { cycleId: cycle.id, status: ActivationStatus.RESOLVED, chip: { effectType: ChipEffect.SMOKESCREEN } }, select: { userId: true } }),
+      ])
+      const ids = new Set(smokescreenActs.map(a => a.userId))
+      return NextResponse.json({
+        ...base, ...userContext,
+        results: results.map(r => ({ ...r, submission: { ...r.submission, user: ids.has(r.submission.userId) ? { username: '???' } : r.submission.user } })),
+        submissions: submissions.map(s => ({ ...s, user: ids.has(s.userId) ? { username: '???' } : s.user })),
+      })
+    }
 
-    const maskedSubmissions = submissions.map((s) => ({
-      ...s,
-      user: smokescreenedIds.has(s.userId) ? { username: '???' } : s.user,
-    }))
-
-    return ok({ ...base, ...userContext, results: maskedResults, submissions: maskedSubmissions })
+    return NextResponse.json({ ...base, ...userContext })
+  } catch (err: any) {
+    console.error('[GET /api/cycle/current]', err?.message ?? err)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-
-  return ok({ ...base, ...userContext })
 }

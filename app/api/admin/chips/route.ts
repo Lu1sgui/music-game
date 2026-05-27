@@ -1,49 +1,36 @@
 // app/api/admin/chips/route.ts
-// Method D acquisition: Admin manually gives a chip to a player
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getAuth, ok, err } from '@/lib/api'
+import { getTokenPayload } from '@/lib/auth'
+import { notifyUser } from '@/lib/notify'
 
 export async function POST(request: NextRequest) {
-  const payload = getAuth(request)
-  if (!payload) return err('Unauthorized', 401)
-  if (payload.role !== 'ADMIN') return err('Forbidden', 403)
+  try {
+    const payload = getTokenPayload(request)
+    if (!payload) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (payload.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const body = await request.json()
-  const { userId, chipSlug } = body
+    const { userId, chipSlug } = await request.json()
+    if (!userId || !chipSlug) return NextResponse.json({ error: 'userId and chipSlug required' }, { status: 400 })
 
-  if (!userId || !chipSlug) return err('userId and chipSlug are required')
+    const chip = await prisma.chip.findUnique({ where: { slug: chipSlug } })
+    if (!chip) return NextResponse.json({ error: `Chip "${chipSlug}" not found` }, { status: 404 })
 
-  const [user, chip] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId } }),
-    prisma.chip.findUnique({ where: { slug: chipSlug } }),
-  ])
+    const user = await prisma.user.findUnique({ where: { id: userId } })
+    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 })
 
-  if (!user) return err('User not found', 404)
-  if (!chip) return err(`Chip "${chipSlug}" not found`, 404)
+    await prisma.userChip.upsert({
+      where: { userId_chipId: { userId, chipId: chip.id } },
+      update: { quantity: { increment: 1 }, lastAcquiredAt: new Date() },
+      create: { userId, chipId: chip.id, quantity: 1, lastAcquiredAt: new Date() },
+    })
 
-  // Check inventory limits (max 5 total, max 2 of same chip)
-  const inventory = await prisma.userChip.findMany({
-    where: { userId, quantity: { gt: 0 } },
-  })
-  const totalChips = inventory.reduce((sum, uc) => sum + uc.quantity, 0)
-  if (totalChips >= 5) {
-    return err(`${user.username} has a full inventory (max 5 chips)`, 409)
+    // Notify the player
+    await notifyUser(userId, `⚡ Admin has gifted you a **${chip.name}** chip (${chip.rarity})! Check your profile to see it.`)
+
+    return NextResponse.json({ message: `${chip.name} given to @${user.username}` })
+  } catch (err: any) {
+    console.error('[POST /api/admin/chips]', err?.message ?? err)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-
-  const existingChip = inventory.find((uc) => uc.chipId === chip.id)
-  if (existingChip && existingChip.quantity >= 2) {
-    return err(`${user.username} already has 2 copies of ${chip.name}`, 409)
-  }
-
-  const userChip = await prisma.userChip.upsert({
-    where: { userId_chipId: { userId, chipId: chip.id } },
-    update: { quantity: { increment: 1 }, lastAcquiredAt: new Date() },
-    create: { userId, chipId: chip.id, quantity: 1, lastAcquiredAt: new Date() },
-  })
-
-  return ok({
-    message: `${chip.name} given to ${user.username}`,
-    userChip,
-  })
 }

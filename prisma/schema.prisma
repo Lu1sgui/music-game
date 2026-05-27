@@ -5,7 +5,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -112,6 +112,8 @@ model User {
   streakWeeks  Int      @default(0) @map("streak_weeks") // consecutive weeks with a submission
   bideStored   Boolean  @default(false) @map("bide_stored") // true when Bide was declared last week
   isActive     Boolean  @default(true) @map("is_active")
+  avatarSeed   String?  @map("avatar_seed") @db.VarChar(30)
+  avatarStyle  String   @default("miniavs") @map("avatar_style") @db.VarChar(20)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -122,6 +124,7 @@ model User {
   chipActivations  ChipActivation[] @relation("Activator")
   targetedByChips  ChipActivation[] @relation("Target")
   gmCycles         WeekCycle[]      @relation("GM")
+  notifications    Notification[]
 
   @@map("users")
 }
@@ -293,4 +296,17 @@ model ChipActivation {
 
   @@index([cycleId, status]) // queried heavily during chip resolution
   @@map("chip_activations")
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  message   String   @db.VarChar(500)
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@map("notifications")
 }
