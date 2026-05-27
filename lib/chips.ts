@@ -65,7 +65,7 @@ export async function resolveChips(
 
   // Bounce negative chips targeting a Reflect user
   for (const activation of activations) {
-    if (!REFLECTABLE.has(activation.chip.effectType)) continue
+    if (!REFLECTABLE.has(activation.chip.effectType as any)) continue
     if (!activation.targetUserId) continue
     if (!reflectUsers.has(activation.targetUserId)) continue
 

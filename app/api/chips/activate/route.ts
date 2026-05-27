@@ -1,6 +1,7 @@
 // app/api/chips/activate/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 import { CycleStatus, ChipEffect, ActivationStatus } from '@prisma/client'
 import { isSporeLocked } from '@/lib/chips'
 import { getAuth, ok, err } from '@/lib/api'
@@ -124,7 +125,7 @@ export async function POST(request: NextRequest) {
             chip.effectType === ChipEffect.CONFUSE_RAY
               ? ActivationStatus.RESOLVED
               : ActivationStatus.PENDING,
-          effectData,
+          effectData: effectData ?? Prisma.JsonNull,
         },
         include: { chip: true },
       }),

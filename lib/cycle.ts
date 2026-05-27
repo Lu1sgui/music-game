@@ -407,7 +407,7 @@ export async function revealCycle(cycleId: number) {
   // ── 5. Cross-user chip effects (need points to be awarded first) ─────────
 
   // Mega Drain — siphon 50% of target's cycle earnings
-  for (const [userId, mod] of modifiers.entries()) {
+  for (const [userId, mod] of Array.from(modifiers.entries())) {
     if (!mod.megaDrainTarget) continue
 
     const targetEarned = await prisma.pointsLedger.aggregate({
@@ -427,7 +427,7 @@ export async function revealCycle(cycleId: number) {
   }
 
   // Skull Bash — steal 30 pts if activator outranked the target
-  for (const [userId, mod] of modifiers.entries()) {
+  for (const [userId, mod] of Array.from(modifiers.entries())) {
     if (!mod.skullBashTarget) continue
 
     const [myResult, targetResult] = await Promise.all([
