@@ -89,7 +89,9 @@ async function main() {
   const revealsDate = nextWeekday(closesDate, 1)
   revealsDate.setUTCHours(5, 0, 0, 0)
 
-  console.log(`→ Creating fresh OPEN cycle: Week ${weekNumber}, ${year}`)
+  // Auto-assign the GM-role user (Devin) to the new cycle
+  const gmUser = keepers.find(u => u.role === 'GM')
+  console.log(`→ Creating fresh OPEN cycle: Week ${weekNumber}, ${year}${gmUser ? ` (GM: @${gmUser.username})` : ''}`)
 
   const cycle = await prisma.weekCycle.create({
     data: {
@@ -99,6 +101,7 @@ async function main() {
       opensAt: now,
       closesAt: closesDate,
       revealsAt: revealsDate,
+      gmUserId: gmUser?.id ?? null,
     },
   })
 

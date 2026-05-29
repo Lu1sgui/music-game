@@ -23,7 +23,7 @@ export async function PATCH(request: NextRequest) {
     if (!cycle) return err('No cycle available for theme update', 422)
 
     const isAdmin = payload.role === 'ADMIN'
-    const isGM = cycle.gmUserId === payload.userId
+    const isGM = payload.role === 'GM' || cycle.gmUserId === payload.userId
     if (!isAdmin && !isGM) {
       return err('Only the assigned Game Master can set the theme', 403)
     }

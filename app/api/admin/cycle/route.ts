@@ -44,7 +44,12 @@ export async function POST(request: NextRequest) {
       case 'new': {
         const schedule = buildCycleSchedule(new Date())
         const nc = await createCycle(schedule)
-        return NextResponse.json({ message: `New cycle ${nc.id} created (PENDING)`, cycle: nc })
+        // Auto-assign first GM-role user if any
+        const gm = await prisma.user.findFirst({ where: { role: 'GM' } })
+        if (gm) {
+          await prisma.weekCycle.update({ where: { id: nc.id }, data: { gmUserId: gm.id } })
+        }
+        return NextResponse.json({ message: `New cycle ${nc.id} created (PENDING)${gm ? ` with @${gm.username} as GM` : ''}`, cycle: nc })
       }
       case 'reset': {
         const nc = await forceReset()

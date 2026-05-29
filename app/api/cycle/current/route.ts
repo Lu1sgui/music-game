@@ -30,10 +30,11 @@ export async function GET(request: NextRequest) {
     }
 
     const isAdmin = payload?.role === 'ADMIN'
+    const isGmRole = payload?.role === 'GM'
     const isCurrentGM = !!(payload && cycle.gmUserId && payload.userId === cycle.gmUserId)
 
-    // GM and Admin always see all submissions (for scoring and flash chip)
-    if (isAdmin || isCurrentGM) {
+    // Admins and ANY GM-role user see all submissions (for scoring and visibility)
+    if (isAdmin || isGmRole || isCurrentGM) {
       const submissions = await prisma.submission.findMany({
         where: { cycleId: cycle.id },
         include: { user: { select: { username: true, avatarSeed: true, avatarStyle: true } } },

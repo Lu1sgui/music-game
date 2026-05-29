@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
 
     // Verify requester is the assigned GM
     const isAdmin = payload.role === 'ADMIN'
-    const isGM = cycle.gmUserId === payload.userId
+    const isGM = payload.role === 'GM' || cycle.gmUserId === payload.userId
     if (!isAdmin && !isGM) {
       return err('Only the assigned Game Master can score this cycle', 403)
     }
