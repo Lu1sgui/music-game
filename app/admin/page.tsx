@@ -28,6 +28,8 @@ export default function AdminPage() {
   const [cycle, setCycle]   = useState<any>(null)
   const [gmUserId, setGmUserId]     = useState('')
   const [chipUserId, setChipUserId] = useState('')
+  const [resetPasswordUser, setResetPasswordUser] = useState('')
+  const [resetResult, setResetResult] = useState<{ tempPassword?: string; emailSentTo?: string } | null>(null)
   const [chipSlug, setChipSlug]     = useState('')
   const [msg, setMsg]       = useState('')
   const [loading, setLoading] = useState(true)
@@ -71,6 +73,15 @@ export default function AdminPage() {
     const res = await api.post('/api/admin/cycle', { action })
     flash(res.error ? `Error: ${res.error}` : `✓ ${res.message}`)
     loadData()
+  }
+
+  const resetPassword = async () => {
+    if (!resetPasswordUser) return
+    if (!confirm('Reset password for this user? They will receive an email with a temporary password.')) return
+    const res = await api.post('/api/admin/reset-password', { userId: parseInt(resetPasswordUser) })
+    if (res.error) { flash(`Error: ${res.error}`); return }
+    setResetResult({ tempPassword: res.tempPassword, emailSentTo: res.emailSentTo })
+    flash(`✓ ${res.message}`)
   }
 
   if (loading) return (
@@ -183,6 +194,36 @@ export default function AdminPage() {
         <button className="btn btn-cyan btn-sm" style={{ width:'auto' }} onClick={giveChip} disabled={!chipUserId || !chipSlug}>
           <Zap size={13} /> GIVE CHIP
         </button>
+      </div>
+
+      {/* ── Reset password ────────────────────────────────── */}
+      <div className="card corners anim-slide-up" style={{ padding:'1.25rem', marginBottom:'1rem' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:'1rem' }}>
+          <span style={{ fontSize:14 }}>🔑</span>
+          <span className="font-ui" style={{ color:'var(--orange)' }}>RESET USER PASSWORD</span>
+        </div>
+        <label className="label">Select player</label>
+        <select className="input" value={resetPasswordUser} onChange={e => setResetPasswordUser(e.target.value)} style={{ marginBottom:'0.75rem' }}>
+          <option value="">— Select a player —</option>
+          {users.map((p: any) => (
+            <option key={p.id} value={p.id}>{p.username}</option>
+          ))}
+        </select>
+        <button className="btn btn-cyan btn-sm" style={{ width:'auto' }} onClick={resetPassword} disabled={!resetPasswordUser}>
+          🔑 RESET PASSWORD
+        </button>
+        {resetResult && (
+          <div style={{ marginTop:'0.75rem', padding:'10px 12px', background:'rgba(255,215,0,.1)',
+                        border:'1px solid var(--yellow)', borderRadius:4, fontSize:'0.82rem' }}>
+            <div style={{ color:'var(--muted)', marginBottom:4 }}>Temporary password (also sent to {resetResult.emailSentTo}):</div>
+            <code style={{ fontFamily:'monospace', fontSize:'1.05rem', color:'var(--yellow)', letterSpacing:'1px' }}>
+              {resetResult.tempPassword}
+            </code>
+            <div style={{ marginTop:8, fontSize:'0.72rem', color:'var(--muted)' }}>
+              The user will be forced to change it on next login.
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

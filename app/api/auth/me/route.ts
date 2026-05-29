@@ -13,7 +13,8 @@ export async function GET(request: NextRequest) {
       select: {
         id: true, username: true, email: true, role: true,
         totalPoints: true, streakWeeks: true,
-        avatarSeed: true, avatarStyle: true,   // ← these were missing
+        avatarSeed: true, avatarStyle: true,
+        mustChangePassword: true,   // ← these were missing
         createdAt: true,
         userChips: { where: { quantity: { gt: 0 } }, include: { chip: true } },
         userAchievements: { include: { achievement: true }, orderBy: { earnedAt: 'desc' } },

@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
         id: user.id, username: user.username, role: user.role,
         totalPoints: user.totalPoints, streakWeeks: user.streakWeeks,
         avatarSeed: user.avatarSeed, avatarStyle: user.avatarStyle,
+        mustChangePassword: user.mustChangePassword,
       },
     })
   } catch (err: any) {
