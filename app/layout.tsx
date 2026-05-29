@@ -2,6 +2,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Press_Start_2P, Rajdhani, Inter } from 'next/font/google'
 import './globals.css'
+import ImpersonationBanner from './components/ImpersonationBanner'
 import { AuthProvider } from './context/AuthContext'
 import Navbar from './components/Navbar'
 import Sidebar from './components/Sidebar'
@@ -43,6 +44,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${pixelFont.variable} ${rajdhani.variable} ${inter.variable}`}>
       <body>
         <AuthProvider>
+          <ImpersonationBanner />
           <div className="app-shell">
             <Sidebar />
             <div className="shell-content">

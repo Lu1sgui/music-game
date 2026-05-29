@@ -16,9 +16,12 @@ interface AuthCtx {
   user: AuthUser | null
   token: string | null
   loading: boolean
+  isImpersonating: boolean
   login: (token: string, user: AuthUser) => void
   logout: () => void
   refreshUser: () => Promise<void>
+  impersonate: (targetUserId: number) => Promise<boolean>
+  returnToAdmin: () => void
 }
 
 const Ctx = createContext<AuthCtx | null>(null)
@@ -26,12 +29,15 @@ const Ctx = createContext<AuthCtx | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser]     = useState<AuthUser | null>(null)
   const [token, setToken]   = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading]   = useState(true)
+  const [isImpersonating, setIsImpersonating] = useState(false)
 
   useEffect(() => {
     const t = localStorage.getItem('wb_token')
     const u = localStorage.getItem('wb_user')
+    const adminBackup = localStorage.getItem('wb_admin_backup')
     if (t && u) { setToken(t); setUser(JSON.parse(u)) }
+    if (adminBackup) setIsImpersonating(true)
     setLoading(false)
   }, [])
 
@@ -45,8 +51,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     localStorage.removeItem('wb_token')
     localStorage.removeItem('wb_user')
+    localStorage.removeItem('wb_admin_backup')
     setToken(null)
     setUser(null)
+    setIsImpersonating(false)
   }
 
   const refreshUser = useCallback(async () => {
@@ -56,7 +64,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${t}` } })
       if (!res.ok) return
       const data = await res.json()
-      // Merge full profile with auth user shape, preserving avatar fields
       const updated: AuthUser = {
         id: data.id, username: data.username, role: data.role,
         totalPoints: data.totalPoints, streakWeeks: data.streakWeeks,
@@ -67,7 +74,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {}
   }, [])
 
-  return <Ctx.Provider value={{ user, token, loading, login, logout, refreshUser }}>{children}</Ctx.Provider>
+  const impersonate = useCallback(async (targetUserId: number): Promise<boolean> => {
+    const t = localStorage.getItem('wb_token')
+    if (!t) return false
+
+    const res = await fetch('/api/admin/impersonate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
+      body: JSON.stringify({ userId: targetUserId }),
+    })
+    if (!res.ok) return false
+
+    const data = await res.json()
+    // Save current admin session for later return
+    const backup = { token: t, user: localStorage.getItem('wb_user') }
+    localStorage.setItem('wb_admin_backup', JSON.stringify(backup))
+
+    // Replace with impersonated session
+    localStorage.setItem('wb_token', data.token)
+    localStorage.setItem('wb_user', JSON.stringify(data.user))
+    setToken(data.token)
+    setUser(data.user)
+    setIsImpersonating(true)
+    return true
+  }, [])
+
+  const returnToAdmin = useCallback(() => {
+    const backup = localStorage.getItem('wb_admin_backup')
+    if (!backup) return
+    const { token: t, user: u } = JSON.parse(backup)
+    localStorage.setItem('wb_token', t)
+    localStorage.setItem('wb_user', u)
+    localStorage.removeItem('wb_admin_backup')
+    setToken(t)
+    setUser(JSON.parse(u))
+    setIsImpersonating(false)
+    window.location.href = '/'
+  }, [])
+
+  return (
+    <Ctx.Provider value={{ user, token, loading, isImpersonating, login, logout, refreshUser, impersonate, returnToAdmin }}>
+      {children}
+    </Ctx.Provider>
+  )
 }
 
 export function useAuth() {

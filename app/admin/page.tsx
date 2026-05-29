@@ -20,7 +20,7 @@ const CYCLE_ACTIONS: Record<string, { label: string; next: string; color: string
 }
 
 export default function AdminPage() {
-  const { user } = useAuth()
+  const { user, impersonate } = useAuth()
   const api = useApi()
   const router = useRouter()
 
@@ -29,6 +29,7 @@ export default function AdminPage() {
   const [gmUserId, setGmUserId]     = useState('')
   const [chipUserId, setChipUserId] = useState('')
   const [resetPasswordUser, setResetPasswordUser] = useState('')
+  const [impersonateUser, setImpersonateUser] = useState('')
   const [resetResult, setResetResult] = useState<{ tempPassword?: string; emailSentTo?: string } | null>(null)
   const [chipSlug, setChipSlug]     = useState('')
   const [msg, setMsg]       = useState('')
@@ -82,6 +83,16 @@ export default function AdminPage() {
     if (res.error) { flash(`Error: ${res.error}`); return }
     setResetResult({ tempPassword: res.tempPassword, emailSentTo: res.emailSentTo })
     flash(`✓ ${res.message}`)
+  }
+
+  const loginAsUser = async () => {
+    if (!impersonateUser) return
+    const u = users.find((p: any) => p.id === parseInt(impersonateUser))
+    if (!u) return
+    if (!confirm(`Log in as @${u.username}? You'll be able to return to your admin account anytime.`)) return
+    const ok = await impersonate(parseInt(impersonateUser))
+    if (ok) router.push('/')
+    else flash('Failed to impersonate')
   }
 
   if (loading) return (
@@ -193,6 +204,27 @@ export default function AdminPage() {
         </select>
         <button className="btn btn-cyan btn-sm" style={{ width:'auto' }} onClick={giveChip} disabled={!chipUserId || !chipSlug}>
           <Zap size={13} /> GIVE CHIP
+        </button>
+      </div>
+
+      {/* ── Impersonate user ──────────────────────────────── */}
+      <div className="card corners anim-slide-up" style={{ padding:'1.25rem', marginBottom:'1rem' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:'1rem' }}>
+          <span style={{ fontSize:14 }}>👁</span>
+          <span className="font-ui" style={{ color:'var(--cyan)' }}>IMPERSONATE USER</span>
+        </div>
+        <p style={{ fontSize:'0.78rem', color:'var(--muted)', marginBottom:'0.75rem', lineHeight:1.5 }}>
+          Log in as any player to see what they see. You can return to your admin account anytime.
+        </p>
+        <label className="label">Select player</label>
+        <select className="input" value={impersonateUser} onChange={e => setImpersonateUser(e.target.value)} style={{ marginBottom:'0.75rem' }}>
+          <option value="">— Select a player —</option>
+          {users.map((p: any) => (
+            <option key={p.id} value={p.id}>{p.username} ({p.role ?? 'PLAYER'})</option>
+          ))}
+        </select>
+        <button className="btn btn-cyan btn-sm" style={{ width:'auto' }} onClick={loginAsUser} disabled={!impersonateUser}>
+          👁 LOGIN AS USER
         </button>
       </div>
 
