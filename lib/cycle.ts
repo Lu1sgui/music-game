@@ -5,6 +5,7 @@
 import { prisma } from '@/lib/prisma'
 import { CycleStatus, PointType, ConditionType, ChipEffect, ActivationStatus, Prisma } from '@prisma/client'
 import { resolveChips } from '@/lib/chips'
+import { resolveSongDisruptions } from '@/lib/songchips'
 
 // Accepts either the base client or an interactive-transaction client
 type Db = Prisma.TransactionClient | typeof prisma
@@ -133,6 +134,8 @@ export async function closeCycle(cycleId: number) {
   if (cycle.status !== CycleStatus.OPEN) {
     throw new Error(`Cannot close cycle — current status is ${cycle.status}`)
   }
+  // Resolve song-disruption chips now so the GM scores the final (sabotaged) songs
+  await resolveSongDisruptions(cycleId)
   return prisma.weekCycle.update({
     where: { id: cycleId },
     data: { status: CycleStatus.CLOSED },

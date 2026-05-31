@@ -168,7 +168,8 @@ export async function resolveChips(
   }
   const insuranceBlocks = new Map<number, number>() // insured → disruptive blocks available
   for (const a of activations) {
-    if (a.chip.effectType === ChipEffect.INSURANCE && !cancelled.has(a.id)) {
+    // Skip Insurance already spent at CLOSE on a song-disruption chip
+    if (a.chip.effectType === ChipEffect.INSURANCE && !cancelled.has(a.id) && !(a.effectData as any)?.consumed) {
       insuranceBlocks.set(a.userId, (insuranceBlocks.get(a.userId) ?? 0) + 1)
     }
   }
@@ -289,6 +290,14 @@ export async function resolveChips(
       case ChipEffect.PROTECT:
       case ChipEffect.CLEANSE:
       case ChipEffect.MIRROR_COAT:
+        break
+
+      // Song-disruption chips are resolved at CLOSE (see lib/songchips.ts); if one
+      // is somehow still pending at reveal, do nothing here.
+      case ChipEffect.SWITCHEROO:
+      case ChipEffect.COPYCAT:
+      case ChipEffect.MUTE:
+      case ChipEffect.INSURANCE:
         break
 
       // ── Expansion: offensive chips (point math runs in revealCycle) ──────

@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 import { CycleStatus, ChipEffect, ChipPhase, ActivationStatus } from '@prisma/client'
 import { isSporeLocked } from '@/lib/chips'
-import { getAuth, ok, err } from '@/lib/api'
+import { getAuth, ok, err, extractPlatformInfo } from '@/lib/api'
 
 // Activation model v2: up to 3 chip activations per player per cycle
 const MAX_CHIPS_PER_CYCLE = 3
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     if (!payload) return err('Unauthorized', 401)
 
     const body = await request.json()
-    const { chipSlug, targetUserId, wildcardSlug, donationSlug, theme, themeDescription } = body
+    const { chipSlug, targetUserId, wildcardSlug, donationSlug, theme, themeDescription, swapTitle, swapArtist, swapUrl } = body
 
     if (!chipSlug) return err('chipSlug is required')
 
@@ -188,6 +188,27 @@ export async function POST(request: NextRequest) {
       }
       donationTransfer = { chipId: gift.id }
       effectData = { donatedChip: gift.slug }
+    }
+
+    // SWITCHEROO: stash the replacement song; applied at close (hidden till reveal)
+    if (chip.effectType === ChipEffect.SWITCHEROO) {
+      if (!swapTitle || !swapArtist || !swapUrl) {
+        return err('Switcheroo requires the replacement song (swapTitle, swapArtist, swapUrl)')
+      }
+      if (!extractPlatformInfo(String(swapUrl))) {
+        return err('Switcheroo replacement URL must be a valid Spotify or YouTube link')
+      }
+      effectData = { swap: { songTitle: String(swapTitle).slice(0, 200), songArtist: String(swapArtist).slice(0, 200), url: String(swapUrl) } }
+    }
+
+    // COPYCAT: the target's entry becomes a copy of YOUR submitted song
+    if (chip.effectType === ChipEffect.COPYCAT) {
+      const mySub = await prisma.submission.findFirst({
+        where: { userId: payload.userId, cycleId: cycle.id },
+        orderBy: { slot: 'asc' },
+      })
+      if (!mySub) return err('You must have submitted a song before using Copycat')
+      effectData = { swap: { songTitle: mySub.songTitle, songArtist: mySub.songArtist, url: mySub.url } }
     }
 
     // ── Create activation + decrement inventory ───────────────────────────────

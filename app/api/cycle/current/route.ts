@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { CycleStatus, ChipEffect, ActivationStatus } from '@prisma/client'
 import { getTokenPayload } from '@/lib/auth'
+import { applySongOverrides } from '@/lib/songchips'
 
 export async function GET(request: NextRequest) {
   try {
@@ -35,11 +36,15 @@ export async function GET(request: NextRequest) {
 
     // Admins and ANY GM-role user see all submissions (for scoring and visibility)
     if (isAdmin || isGmRole || isCurrentGM) {
-      const submissions = await prisma.submission.findMany({
+      const rawSubmissions = await prisma.submission.findMany({
         where: { cycleId: cycle.id },
         include: { user: { select: { username: true, avatarSeed: true, avatarStyle: true } } },
         orderBy: { submittedAt: 'asc' },
       })
+      // Apply song-disruption overrides (Switcheroo/Copycat/Mute) for scoring.
+      // Before reveal, the viewer never sees a disruption on their OWN song.
+      const revealed = cycle.status === CycleStatus.REVEALED || cycle.status === CycleStatus.ARCHIVED
+      const submissions = await applySongOverrides(rawSubmissions, cycle.id, { revealed, viewerUserId: payload?.userId })
       const mySubmission = payload ? await prisma.submission.findFirst({
         where: { userId: payload.userId, cycleId: cycle.id },
         orderBy: { slot: 'asc' },
@@ -83,10 +88,23 @@ export async function GET(request: NextRequest) {
         prisma.chipActivation.findMany({ where: { cycleId: cycle.id, status: ActivationStatus.RESOLVED, chip: { effectType: ChipEffect.SMOKESCREEN } }, select: { userId: true } }),
       ])
       const ids = new Set(smokescreenActs.map(a => a.userId))
+      // Reveal the song swaps (Switcheroo/Copycat) to everyone
+      const overSubs = await applySongOverrides(submissions, cycle.id, { revealed: true })
+      const resSubs = await applySongOverrides(
+        results.map(r => ({ ...r.submission, userId: r.userId })),
+        cycle.id, { revealed: true }
+      )
       return NextResponse.json({
         ...base, ...userContext,
-        results: results.map(r => ({ ...r, submission: { ...r.submission, user: ids.has(r.submission.userId) ? { username: '???' } : r.submission.user } })),
-        submissions: submissions.map(s => ({ ...s, user: ids.has(s.userId) ? { username: '???' } : s.user })),
+        results: results.map((r, i) => ({
+          ...r,
+          submission: {
+            ...r.submission,
+            songTitle: resSubs[i].songTitle, songArtist: resSubs[i].songArtist, url: resSubs[i].url,
+            user: ids.has(r.submission.userId) ? { username: '???' } : r.submission.user,
+          },
+        })),
+        submissions: overSubs.map(s => ({ ...s, user: ids.has(s.userId) ? { username: '???' } : s.user })),
       })
     }
 

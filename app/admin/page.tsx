@@ -17,6 +17,7 @@ const CHIP_SLUGS = [
   'usurp','earthquake','time-bomb','curse',
   'veto','insurance','pickpocket','blackout','crown',
   'wildcard','donation','decree',
+  'switcheroo','copycat','mute',
 ]
 
 const CYCLE_ACTIONS: Record<string, { label: string; next: string; color: string }> = {
