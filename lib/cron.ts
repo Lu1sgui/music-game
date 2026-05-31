@@ -18,6 +18,7 @@ import {
   createCycle,
   buildCycleSchedule,
   getCurrentCycle,
+  applyMetaChipsToNewCycle,
 } from '@/lib/cycle'
 import {
   notifyAllActive,
@@ -73,6 +74,9 @@ export function initCron() {
       console.log(`[cron] New cycle ${newCycle.id} created (PENDING) — week ${newCycle.weekNumber}`)
       console.log(`[cron] Submissions open: ${schedule.opensAt.toISOString()}`)
       console.log(`[cron] Submissions close: ${schedule.closesAt.toISOString()}`)
+
+      // Apply meta chips from the revealed cycle (Crown → next GM)
+      if (closed) await applyMetaChipsToNewCycle(closed.id, newCycle.id)
 
       // Announce the new week (in-app only — conservative email scope)
       await notifyAllActive(

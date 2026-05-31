@@ -656,10 +656,33 @@ export async function revealCycle(cycleId: number) {
   )
 }
 
+// ─── Meta chips applied when the next cycle is created ───────────────────────
+// Crown: the chosen player becomes GM of the new cycle. (Decree/theme will hook
+// in here too once it ships.)
+export async function applyMetaChipsToNewCycle(prevCycleId: number, newCycleId: number) {
+  const crown = await prisma.chipActivation.findFirst({
+    where: {
+      cycleId: prevCycleId,
+      status: ActivationStatus.RESOLVED,
+      chip: { effectType: ChipEffect.CROWN },
+      targetUserId: { not: null },
+    },
+    orderBy: { activatedAt: 'desc' },
+  })
+  if (crown?.targetUserId) {
+    await prisma.weekCycle.update({
+      where: { id: newCycleId },
+      data: { gmUserId: crown.targetUserId },
+    })
+    console.log(`[meta] Crown: user ${crown.targetUserId} set as GM of cycle ${newCycleId}`)
+  }
+}
+
 // ─── Admin force reset ────────────────────────────────────────────────────────
 
 export async function forceReset() {
   const current = await getCurrentCycle()
+  const prevCycleId = current?.id ?? null
 
   if (current) {
     let status = current.status
@@ -689,6 +712,7 @@ export async function forceReset() {
   // Create and open a new cycle starting now
   const schedule = buildCycleSchedule(new Date())
   const newCycle = await createCycle(schedule)
+  if (prevCycleId) await applyMetaChipsToNewCycle(prevCycleId, newCycle.id)
   await openCycle(newCycle.id)
   return newCycle
 }

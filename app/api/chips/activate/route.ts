@@ -29,7 +29,8 @@ export async function POST(request: NextRequest) {
     if (chip.requiresTarget && !targetUserId) {
       return err(`${chip.name} requires a target player (targetUserId)`)
     }
-    if (targetUserId && targetUserId === payload.userId) {
+    // Crown may target yourself (you can crown yourself the next GM)
+    if (targetUserId && targetUserId === payload.userId && chip.effectType !== ChipEffect.CROWN) {
       return err('You cannot target yourself')
     }
 

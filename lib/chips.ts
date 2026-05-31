@@ -321,6 +321,22 @@ export async function resolveChips(
         if (activation.targetUserId) mod(activation.targetUserId).vetoed = true
         break
 
+      // BLACKOUT: like Spore but blocks SUBMISSION next cycle. The RESOLVED row
+      // (with targetUserId) is the record; isBlackedOut() reads it at submit time.
+      case ChipEffect.BLACKOUT:
+        if (activation.targetUserId) {
+          console.log(`[chips] Blackout on user ${activation.targetUserId} — can't submit next cycle`)
+        }
+        break
+
+      // CROWN: the RESOLVED row carries the chosen GM (targetUserId); applied when
+      // the next cycle is created (see applyMetaChipsToNewCycle).
+      case ChipEffect.CROWN:
+        if (activation.targetUserId) {
+          console.log(`[chips] Crown by user ${activation.userId} — picks user ${activation.targetUserId} as next GM`)
+        }
+        break
+
       case ChipEffect.PICKPOCKET: {
         if (!activation.targetUserId) break
         // Steal a random chip from the target — resolved now but stays hidden
@@ -500,6 +516,33 @@ export async function isSporeLocked(
   for (const spore of spores) {
     const nextCycle = await db.weekCycle.findFirst({
       where: { id: { gt: spore.cycleId } },
+      orderBy: { id: 'asc' },
+      select: { id: true },
+    })
+    if (nextCycle && nextCycle.id === cycleId) return true
+  }
+  return false
+}
+
+// ─── Check if a user is Blacked-out (can't submit) for a given cycle ─────────
+// Same "next cycle after the plant" semantics as Spore, but blocks SUBMISSION.
+export async function isBlackedOut(
+  userId: number,
+  cycleId: number,
+  db: Db = prisma
+): Promise<boolean> {
+  const blackouts = await db.chipActivation.findMany({
+    where: {
+      status: ActivationStatus.RESOLVED,
+      chip: { effectType: ChipEffect.BLACKOUT },
+      targetUserId: userId,
+    },
+    select: { cycleId: true },
+  })
+
+  for (const b of blackouts) {
+    const nextCycle = await db.weekCycle.findFirst({
+      where: { id: { gt: b.cycleId } },
       orderBy: { id: 'asc' },
       select: { id: true },
     })

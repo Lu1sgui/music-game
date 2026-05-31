@@ -15,7 +15,7 @@ const CHIP_SLUGS = [
   'cushion','spotlight','insight','gamble','foresight','amnesty',
   'toxic','payday','protect','bounty','cleanse','mirror-coat',
   'usurp','earthquake','time-bomb','curse',
-  'veto','insurance','pickpocket',
+  'veto','insurance','pickpocket','blackout','crown',
 ]
 
 const CYCLE_ACTIONS: Record<string, { label: string; next: string; color: string }> = {
