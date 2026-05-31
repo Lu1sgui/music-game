@@ -3,7 +3,7 @@
 // Visible only on desktop (CSS: .sidebar { display: none } → display: flex on ≥768px)
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '../context/AuthContext'
-import { Home, Trophy, Music, Archive, User, Zap, LogOut, Gamepad2 } from 'lucide-react'
+import { Home, Trophy, Music, Archive, User, Zap, LogOut, Gamepad2, BookOpen } from 'lucide-react'
 import Avatar from './Avatar'
 
 const NAV = [
@@ -12,6 +12,7 @@ const NAV = [
   { path: '/submit',  label: 'Submit Song',Icon: Music },
   { path: '/chips',   label: 'My Chips',   Icon: Zap },
   { path: '/archive', label: 'Archive',    Icon: Archive },
+  { path: '/manual',  label: 'Manual',     Icon: BookOpen },
   { path: '/profile', label: 'Profile',    Icon: User },
 ]
 
