@@ -33,7 +33,8 @@ export interface ChipModifier {
   bountyTarget?: number       // Bounty (on activator): 20-pt bounty on target
   usurpTarget?: number        // Usurp (on activator): swap podium positions if both podium
   // ── Expansion (defensive) ──
-  insurance?: boolean         // Insurance: keep participation + streak if disrupted
+  insurance?: boolean         // Insurance: blocks one disruptive chip (Veto/Switcheroo/etc.)
+  vetoed?: boolean            // Veto (on target): can't take a podium slot, participation only
 }
 
 // Chip types that can be reflected by Reflect
@@ -52,6 +53,15 @@ type Activation = Awaited<ReturnType<typeof prisma.chipActivation.findMany>>[num
 
 // Point-draining chips that Mirror Coat reacts to
 const DRAIN_CHIPS = new Set([ChipEffect.TOXIC, ChipEffect.MEGA_DRAIN, ChipEffect.LEECH_SEED])
+
+// Submission/song-disrupting chips that Insurance reacts to
+const DISRUPTIVE_CHIPS = new Set([
+  ChipEffect.VETO,
+  ChipEffect.SWITCHEROO,
+  ChipEffect.COPYCAT,
+  ChipEffect.BLACKOUT,
+  ChipEffect.MUTE,
+])
 
 export async function resolveChips(
   activations: Activation[],
@@ -156,6 +166,12 @@ export async function resolveChips(
       protectBlocks.set(a.userId, (protectBlocks.get(a.userId) ?? 0) + 1)
     }
   }
+  const insuranceBlocks = new Map<number, number>() // insured → disruptive blocks available
+  for (const a of activations) {
+    if (a.chip.effectType === ChipEffect.INSURANCE && !cancelled.has(a.id)) {
+      insuranceBlocks.set(a.userId, (insuranceBlocks.get(a.userId) ?? 0) + 1)
+    }
+  }
 
   for (const a of activations) {
     if (cancelled.has(a.id)) continue
@@ -166,6 +182,13 @@ export async function resolveChips(
     if (cleanseUsers.has(tgt)) {
       await cancel(a, { blockedBy: 'cleanse', defenderId: tgt, casterId: a.userId, chip: a.chip.slug }, false)
       console.log(`[chips] ${a.chip.slug} on user ${tgt} blocked by Cleanse`)
+      continue
+    }
+    // Insurance — blocks one disruptive (song/submission) chip
+    if (DISRUPTIVE_CHIPS.has(a.chip.effectType as any) && (insuranceBlocks.get(tgt) ?? 0) > 0) {
+      insuranceBlocks.set(tgt, (insuranceBlocks.get(tgt) ?? 0) - 1)
+      await cancel(a, { blockedBy: 'insurance', defenderId: tgt, casterId: a.userId, chip: a.chip.slug }, false)
+      console.log(`[chips] ${a.chip.slug} on user ${tgt} blocked by Insurance`)
       continue
     }
     // Mirror Coat — blocks drains; Toxic is reflected onto the caster
@@ -293,6 +316,41 @@ export async function resolveChips(
         userMod.earthquake = true
         userMod.cannotPodium = true
         break
+
+      case ChipEffect.VETO:
+        if (activation.targetUserId) mod(activation.targetUserId).vetoed = true
+        break
+
+      case ChipEffect.PICKPOCKET: {
+        if (!activation.targetUserId) break
+        // Steal a random chip from the target — resolved now but stays hidden
+        // (the victim only learns at the reveal). Respects the activator's caps.
+        const victimChips = await db.userChip.findMany({
+          where: { userId: activation.targetUserId, quantity: { gt: 0 } },
+        })
+        if (victimChips.length === 0) break
+        const stolen = victimChips[Math.floor(Math.random() * victimChips.length)]
+
+        const activatorInv = await db.userChip.findMany({
+          where: { userId: activation.userId, quantity: { gt: 0 } },
+        })
+        const total = activatorInv.reduce((s, uc) => s + uc.quantity, 0)
+        const existing = activatorInv.find((uc) => uc.chipId === stolen.chipId)
+        if (total >= 5 || (existing && existing.quantity >= 2)) break // can't hold it — theft fizzles
+
+        await db.userChip.update({ where: { id: stolen.id }, data: { quantity: { decrement: 1 } } })
+        await db.userChip.upsert({
+          where: { userId_chipId: { userId: activation.userId, chipId: stolen.chipId } },
+          update: { quantity: { increment: 1 }, lastAcquiredAt: new Date() },
+          create: { userId: activation.userId, chipId: stolen.chipId, quantity: 1, lastAcquiredAt: new Date() },
+        })
+        await db.chipActivation.update({
+          where: { id: activation.id },
+          data: { effectData: { stolenChipId: stolen.chipId } },
+        })
+        console.log(`[chips] Pickpocket: user ${activation.userId} stole chip ${stolen.chipId} from ${activation.targetUserId}`)
+        break
+      }
 
       case ChipEffect.TIME_BOMB: {
         if (!activation.targetUserId) break

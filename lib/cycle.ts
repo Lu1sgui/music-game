@@ -352,6 +352,18 @@ export async function revealCycle(cycleId: number) {
           continue
         }
 
+        // Veto — the target's song can't make the podium; participation only
+        if (mod?.vetoed) {
+          await awardPoints({
+            userId: result.userId,
+            cycleId,
+            amount: POINTS.PARTICIPATION,
+            type: PointType.PARTICIPATION,
+            description: `Week ${cycle.weekNumber} — participation (Vetoed)`,
+          }, tx)
+          continue
+        }
+
         // Screech — score one tier lower
         if (mod?.tieredDown) {
           if (position < 3) {
