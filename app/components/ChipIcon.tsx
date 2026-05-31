@@ -1,3 +1,4 @@
+'use client'
 // app/components/ChipIcon.tsx
 // Meme/pokemon pixel icons from shuqikhor/pixel-icons
 // Raw GitHub CDN — colorful, no color filters applied (they're memes!)
@@ -5,9 +6,9 @@
 const MEME_BASE = 'https://raw.githubusercontent.com/shuqikhor/pixel-icons/main/icons'
 const ICON_BASE = 'https://sqkhor.com/pixel-icons/icons'  // fallback for non-meme icons
 
-// Chip → meme icon mapping (thematic pairings)
+// Chip → pixel icon mapping (thematic pairings). Every chip has a real icon.
 const CHIP_ICON: Record<string, string> = {
-  // Common
+  // ── Common ──
   'flash':         'surprised-pikachu', // ⚡ PIKACHU IS SHOCKED
   'smokescreen':   'this-is-fine',      // 🔥 this is fine (can't see)
   'substitute':    'spooderman',        // 👥 pointing at your copy
@@ -15,7 +16,7 @@ const CHIP_ICON: Record<string, string> = {
   'swift':         'nyan-cat',          // 🌈 nyan at full speed
   'haze':          'sad-pepe',          // 😢 confused in the haze
   'night-shade':   'rickroll',          // 🌙 nobody expects it
-  // Rare
+  // ── Rare ──
   'swords-dance':  'stonks',            // 📈 attack going STONKS
   'double-team':   'spooderman',        // 👥 two of you now
   'disable':       'sad-pepe',          // 😢 your move is disabled
@@ -23,13 +24,48 @@ const CHIP_ICON: Record<string, string> = {
   'mimic':         'nyan-cat',          // 🎵 copying your whole vibe
   'confuse-ray':   'sacabambaspis',     // 🐟 this fish confuses EVERYONE
   'leech-seed':    'this-is-fine',      // 🌱 slowly draining, this is fine
-  // Legendary
+  // ── Legendary ──
   'mega-drain':    'stonks',            // 📈 reverse stonks for you
   'screech':       'rickroll',          // 🎤 unexpected screech attack
   'metronome':     'sacabambaspis',     // 🎲 chaotic prehistoric randomness
   'spore':         'sad-pepe',          // 😴 sleepy sad pepe energy
   'bide':          'take-my-money',     // 💰 saving up, investing energy
   'skull-bash':    'nyan-cat',          // 💀 nyan of destruction
+
+  // ── Expansion: Common ──
+  'cushion':       'koala-hug',         // 🛋️ soft hug
+  'spotlight':     'star',              // ⭐ podium shine
+  'insight':       'magnifier',         // 🔍 look closer
+  'insurance':     'umbrella',          // ☂️ covered
+  'donation':      'gift',              // 🎁 a present
+  // ── Expansion: Rare ──
+  'toxic':         'frog',              // 🐸 poison-dart frog
+  'payday':        'stonks',            // 📈 money up
+  'protect':       'tortoise',          // 🐢 hard shell
+  'gamble':        'maneki-neko',       // 🐱 lucky cat
+  'pickpocket':    'meowth',            // 😼 steals your coins
+  'bounty':        'ribbon',            // 🎗️ prize on their head
+  'cleanse':       'sparkles',          // ✨ wiped clean
+  'foresight':     'owl-1',             // 🦉 sees in the dark
+  'banker':        'credit-card',       // 💳 bank it
+  'mute':          'sound-mute',        // 🔇 silenced
+  'usurp':         'mario-jump',        // 🍄 leap over them
+  'mirror-coat':   'mirror-ball',       // 🪩 reflect
+  'wildcard':      'pinata',            // 🪅 random surprise
+  // ── Expansion: Legendary ──
+  'blackout':      'moon',              // 🌑 lights out
+  'veto':          'thumb-down',        // 👎 denied
+  'earthquake':    't-rex',             // 🦖 ground-shaking stomp
+  'time-bomb':     'clock',             // ⏰ ticking
+  'switcheroo':    'magikarp',          // 🐟 swapped for a flop
+  'copycat':       'copy',              // 📋 exact copy
+  'curse':         'ghost',             // 👻 haunted
+  // ── Expansion: Golden ──
+  'crown':         'sunglasses',        // 😎 you're the boss
+  'decree':        'message',           // 📣 proclamation
+  'amnesty':       'rainbow',           // 🌈 all is forgiven
+  'double-header': 'users',             // 👥 two winners
+  'extra-time':    'calendar',          // 📅 more time
 }
 
 // Achievement icons (classic pixel icons with tier coloring)
@@ -48,6 +84,7 @@ const RARITY_GLOW: Record<string, string> = {
   COMMON:    'none',
   RARE:      'drop-shadow(0 0 5px #7F77DD)',
   LEGENDARY: 'drop-shadow(0 0 8px #FFD700) drop-shadow(0 0 3px #FFD700)',
+  GOLDEN:    'drop-shadow(0 0 9px #FF8A00) drop-shadow(0 0 4px #FF8A00)',
 }
 
 const TIER_FILTER: Record<string, string> = {

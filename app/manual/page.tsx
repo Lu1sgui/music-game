@@ -1,16 +1,14 @@
 // app/manual/page.tsx — public game manual, SNES-booklet style. No login required.
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { CHIP_GROUPS, ACHIEVEMENTS, ManualChip } from './manualData'
+import { CHIP_GROUPS, ACHIEVEMENTS } from './manualData'
+import ChipGrid from './ChipGrid'
 
 export const metadata: Metadata = {
   title: 'Game Manual — Weekly Beats',
   description: 'How to play Weekly Beats: the weekly cycle, scoring, chips and achievements.',
 }
 
-const KIND_COLOR: Record<ManualChip['kind'], string> = {
-  Self: 'var(--cyan)', Offensive: 'var(--pink)', Defense: 'var(--green)', Utility: 'var(--yellow)', Meta: '#FF8A00',
-}
 
 function Section({ id, n, title, children }: { id: string; n: string; title: string; children: React.ReactNode }) {
   return (
@@ -108,23 +106,7 @@ export default function ManualPage() {
       </Section>
 
       <Section id="compendium" n="5" title="CHIP COMPENDIUM">
-        {CHIP_GROUPS.map((group) => (
-          <div key={group.rarity} style={{ marginBottom: '1.5rem' }}>
-            <div className="font-pixel" style={{ fontSize: 10, color: group.color, margin: '0.5rem 0 0.75rem', letterSpacing: 1 }}>◆ {group.rarity}</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {group.chips.map((c) => (
-                <div key={c.name} className="card" style={{ padding: '0.7rem 0.9rem', borderLeft: `3px solid ${group.color}` }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                    <span className="font-ui" style={{ fontSize: '0.95rem' }}>{c.name}</span>
-                    <span style={{ fontSize: '0.68rem', color: KIND_COLOR[c.kind], border: `1px solid ${KIND_COLOR[c.kind]}`, borderRadius: 3, padding: '1px 6px' }}>{c.kind} · {c.when}</span>
-                  </div>
-                  <div style={{ color: 'var(--muted)', fontSize: '0.82rem', marginTop: 4, lineHeight: 1.45 }}>{c.effect}</div>
-                  {c.counters && <div style={{ fontSize: '0.74rem', color: 'var(--green)', marginTop: 4 }}>Countered by: {c.counters}</div>}
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
+        <ChipGrid groups={CHIP_GROUPS} />
       </Section>
 
       <Section id="achievements" n="6" title="ACHIEVEMENTS">
