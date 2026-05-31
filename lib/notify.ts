@@ -117,4 +117,24 @@ export async function notifyRevealResults(cycleId: number): Promise<void> {
       `⚔️ You were hit by **${hit.chip.name}** (from @${hit.user.username}) this week.`
     )
   }
+
+  // Tell defenders when a pre-emptive shield blocked an incoming attack
+  const blocked = await prisma.chipActivation.findMany({
+    where: { cycleId, status: 'CANCELLED', chip: { offensive: true } },
+    include: { chip: { select: { name: true } }, user: { select: { username: true } } },
+  })
+  const blockLabel: Record<string, string> = {
+    cleanse: 'Cleanse',
+    mirror_coat: 'Mirror Coat',
+    protect: 'Protect',
+  }
+  for (const b of blocked) {
+    const data = b.effectData as { blockedBy?: string; defenderId?: number } | null
+    if (!data?.blockedBy || !data?.defenderId) continue
+    const how = blockLabel[data.blockedBy] ?? 'Your defense'
+    await notifyUser(
+      data.defenderId,
+      `🛡️ Your ${how} blocked **${b.chip.name}** from @${b.user.username}!`
+    )
+  }
 }

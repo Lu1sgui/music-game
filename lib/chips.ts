@@ -24,6 +24,16 @@ export interface ChipModifier {
   cushion?: boolean           // Cushion: +50% participation if NOT on podium
   spotlight?: boolean         // Spotlight: +15 bonus if ON podium
   gamble?: boolean            // Gamble: ×1.5 if on podium, −20 if not
+  // ── Expansion (offensive, applied at reveal) ──
+  toxic?: boolean             // Toxic (on target): lose 30% of cycle earnings
+  curse?: boolean             // Curse (on target): lose streak if you podium
+  cannotPodium?: boolean      // Earthquake caster: can't take a podium slot this week
+  earthquake?: boolean        // Earthquake caster: every other player loses 15
+  paydayTarget?: number       // Payday (on activator): steal 25 if target podiums
+  bountyTarget?: number       // Bounty (on activator): 20-pt bounty on target
+  usurpTarget?: number        // Usurp (on activator): swap podium positions if both podium
+  // ── Expansion (defensive) ──
+  insurance?: boolean         // Insurance: keep participation + streak if disrupted
 }
 
 // Chip types that can be reflected by Reflect
@@ -35,10 +45,13 @@ const REFLECTABLE = new Set([
 ])
 
 type Activation = Awaited<ReturnType<typeof prisma.chipActivation.findMany>>[number] & {
-  chip: { effectType: ChipEffect; slug: string }
+  chip: { effectType: ChipEffect; slug: string; offensive: boolean }
   user: { id: number; bideStored: boolean }
   targetUser: { id: number } | null
 }
+
+// Point-draining chips that Mirror Coat reacts to
+const DRAIN_CHIPS = new Set([ChipEffect.TOXIC, ChipEffect.MEGA_DRAIN, ChipEffect.LEECH_SEED])
 
 export async function resolveChips(
   activations: Activation[],
@@ -53,6 +66,24 @@ export async function resolveChips(
     return modifiers.get(userId)!
   }
 
+  // Cancel an activation. refund=true returns the chip to the caster's inventory
+  // (used when a chip fizzles through no fault — e.g. over the anti-grief cap).
+  // Defense blocks do NOT refund: attacking a shielded player wastes your chip.
+  const cancel = async (a: Activation, effectData: any, refund: boolean) => {
+    if (cancelled.has(a.id)) return
+    cancelled.add(a.id)
+    await db.chipActivation.update({
+      where: { id: a.id },
+      data: { status: ActivationStatus.CANCELLED, resolvedAt: new Date(), effectData },
+    })
+    if (refund) {
+      await db.userChip.update({
+        where: { userId_chipId: { userId: a.userId, chipId: a.chipId } },
+        data: { quantity: { increment: 1 } },
+      })
+    }
+  }
+
   // ── Step 1: HAZE / AMNESTY — nuclear option, cancel everything ────────────
   // Amnesty is the GOLDEN version of Haze: same effect, different tier.
   const wipeActivation = activations.find(
@@ -65,6 +96,24 @@ export async function resolveChips(
     })
     console.log(`[chips] ${wipeActivation.chip.slug} by user ${wipeActivation.userId} — all chips cancelled`)
     return modifiers
+  }
+
+  // ── Step 1.5: ANTI-GRIEF CAP — a target takes at most 2 offensive chips ────
+  // Excess offensive chips (3rd+ on the same target) fizzle and are refunded.
+  const offensiveByTarget = new Map<number, Activation[]>()
+  for (const a of activations) {
+    if (!a.chip.offensive || !a.targetUserId) continue
+    const list = offensiveByTarget.get(a.targetUserId) ?? []
+    list.push(a)
+    offensiveByTarget.set(a.targetUserId, list)
+  }
+  for (const [targetId, list] of Array.from(offensiveByTarget.entries())) {
+    if (list.length <= 2) continue
+    const sorted = list.slice().sort((x, y) => x.id - y.id) // keep the earliest 2
+    for (const extra of sorted.slice(2)) {
+      await cancel(extra, { fizzled: 'over_target_cap', targetUserId: targetId }, true)
+      console.log(`[chips] ${extra.chip.slug} fizzled — user ${targetId} already at the 2-chip cap`)
+    }
   }
 
   // ── Step 2: REFLECT — identify shielded users ─────────────────────────────
@@ -90,6 +139,50 @@ export async function resolveChips(
       },
     })
     console.log(`[chips] ${activation.chip.slug} reflected back to user ${activation.userId}`)
+  }
+
+  // ── Step 2.5: DEFENSES — Cleanse / Mirror Coat / Protect ──────────────────
+  // Applied to offensive chips still targeting a defender. Order of strength:
+  //   Cleanse (blocks all) → Mirror Coat (blocks drains, reflects Toxic) → Protect (blocks one)
+  const cleanseUsers = new Set(
+    activations.filter((a) => a.chip.effectType === ChipEffect.CLEANSE && !cancelled.has(a.id)).map((a) => a.userId)
+  )
+  const mirrorUsers = new Set(
+    activations.filter((a) => a.chip.effectType === ChipEffect.MIRROR_COAT && !cancelled.has(a.id)).map((a) => a.userId)
+  )
+  const protectBlocks = new Map<number, number>() // protector → blocks available (Protects stack)
+  for (const a of activations) {
+    if (a.chip.effectType === ChipEffect.PROTECT && !cancelled.has(a.id)) {
+      protectBlocks.set(a.userId, (protectBlocks.get(a.userId) ?? 0) + 1)
+    }
+  }
+
+  for (const a of activations) {
+    if (cancelled.has(a.id)) continue
+    if (!a.chip.offensive || !a.targetUserId) continue
+    const tgt = a.targetUserId
+
+    // Cleanse — immune to everything
+    if (cleanseUsers.has(tgt)) {
+      await cancel(a, { blockedBy: 'cleanse', defenderId: tgt, casterId: a.userId, chip: a.chip.slug }, false)
+      console.log(`[chips] ${a.chip.slug} on user ${tgt} blocked by Cleanse`)
+      continue
+    }
+    // Mirror Coat — blocks drains; Toxic is reflected onto the caster
+    if (mirrorUsers.has(tgt) && DRAIN_CHIPS.has(a.chip.effectType as any)) {
+      if (a.chip.effectType === ChipEffect.TOXIC) mod(a.userId).toxic = true
+      await cancel(a, { blockedBy: 'mirror_coat', defenderId: tgt, casterId: a.userId, chip: a.chip.slug }, false)
+      console.log(`[chips] ${a.chip.slug} on user ${tgt} blocked by Mirror Coat`)
+      continue
+    }
+    // Protect — blocks a single incoming offensive chip
+    const blocks = protectBlocks.get(tgt) ?? 0
+    if (blocks > 0) {
+      protectBlocks.set(tgt, blocks - 1)
+      await cancel(a, { blockedBy: 'protect', defenderId: tgt, casterId: a.userId, chip: a.chip.slug }, false)
+      console.log(`[chips] ${a.chip.slug} on user ${tgt} blocked by Protect`)
+      continue
+    }
   }
 
   // ── Step 3: DISABLE — cancel target's chip ───────────────────────────────
@@ -164,6 +257,53 @@ export async function resolveChips(
       case ChipEffect.GAMBLE:
         userMod.gamble = true
         break
+
+      case ChipEffect.INSURANCE:
+        userMod.insurance = true
+        break
+
+      // Defensive chips — their blocking happened in step 2.5; nothing more here
+      case ChipEffect.PROTECT:
+      case ChipEffect.CLEANSE:
+      case ChipEffect.MIRROR_COAT:
+        break
+
+      // ── Expansion: offensive chips (point math runs in revealCycle) ──────
+      case ChipEffect.TOXIC:
+        if (activation.targetUserId) mod(activation.targetUserId).toxic = true
+        break
+
+      case ChipEffect.CURSE:
+        if (activation.targetUserId) mod(activation.targetUserId).curse = true
+        break
+
+      case ChipEffect.PAYDAY:
+        if (activation.targetUserId) userMod.paydayTarget = activation.targetUserId
+        break
+
+      case ChipEffect.BOUNTY:
+        if (activation.targetUserId) userMod.bountyTarget = activation.targetUserId
+        break
+
+      case ChipEffect.USURP:
+        if (activation.targetUserId) userMod.usurpTarget = activation.targetUserId
+        break
+
+      case ChipEffect.EARTHQUAKE:
+        userMod.earthquake = true
+        userMod.cannotPodium = true
+        break
+
+      case ChipEffect.TIME_BOMB: {
+        if (!activation.targetUserId) break
+        // Detonates two reveals from now — persisted like Leech Seed
+        await db.chipActivation.update({
+          where: { id: activation.id },
+          data: { effectData: { cyclesRemaining: 2, targetUserId: activation.targetUserId } },
+        })
+        console.log(`[chips] Time Bomb planted on user ${activation.targetUserId} (2 cycles)`)
+        break
+      }
 
       // ── Common chips ─────────────────────────────────────────────────────
       case ChipEffect.SMOKESCREEN:

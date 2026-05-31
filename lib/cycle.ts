@@ -324,9 +324,33 @@ export async function revealCycle(cycleId: number) {
         3: PointType.PODIUM_3RD,
       }
 
+      // Usurp — if both the caster and target made the podium, swap their positions
+      const positionOverride = new Map<number, number>()
+      for (const [aId, m] of Array.from(modifiers.entries())) {
+        if (!m.usurpTarget) continue
+        const aRes = cycle.cycleResults.find((r) => r.userId === aId)
+        const bRes = cycle.cycleResults.find((r) => r.userId === m.usurpTarget)
+        if (aRes && bRes) {
+          positionOverride.set(aId, bRes.position)
+          positionOverride.set(m.usurpTarget, aRes.position)
+        }
+      }
+
       for (const result of cycle.cycleResults) {
         const mod = modifiers.get(result.userId)
-        let position = result.position
+        let position = positionOverride.get(result.userId) ?? result.position
+
+        // Earthquake caster — forfeits the podium, gets participation instead
+        if (mod?.cannotPodium) {
+          await awardPoints({
+            userId: result.userId,
+            cycleId,
+            amount: POINTS.PARTICIPATION,
+            type: PointType.PARTICIPATION,
+            description: `Week ${cycle.weekNumber} — participation (Earthquake forfeit)`,
+          }, tx)
+          continue
+        }
 
         // Screech — score one tier lower
         if (mod?.tieredDown) {
@@ -520,6 +544,88 @@ export async function revealCycle(cycleId: number) {
         await tx.chipActivation.update({
           where: { id: seed.id },
           data: { effectData: { ...data, weeksRemaining: data.weeksRemaining - 1 } },
+        })
+      }
+
+      // Payday — steal 25 from the target if they reached the podium
+      for (const [userId, mod] of Array.from(modifiers.entries())) {
+        if (!mod.paydayTarget) continue
+        const targetPodium = await tx.cycleResult.findFirst({ where: { userId: mod.paydayTarget, cycleId } })
+        if (targetPodium) {
+          await awardPoints({ userId, cycleId, amount: 25, type: PointType.CHIP_BONUS, description: `Week ${cycle.weekNumber} — Payday` }, tx)
+          await awardPoints({ userId: mod.paydayTarget, cycleId, amount: -25, type: PointType.CHIP_PENALTY, description: `Week ${cycle.weekNumber} — Payday stolen` }, tx)
+        }
+      }
+
+      // Earthquake — every other submitter loses 15 points
+      for (const [casterId, mod] of Array.from(modifiers.entries())) {
+        if (!mod.earthquake) continue
+        for (const uid of submitterIds) {
+          if (uid === casterId) continue
+          await awardPoints({ userId: uid, cycleId, amount: -15, type: PointType.CHIP_PENALTY, description: `Week ${cycle.weekNumber} — Earthquake` }, tx)
+        }
+      }
+
+      // Toxic — the target loses 30% of the points they earned this week
+      for (const [userId, mod] of Array.from(modifiers.entries())) {
+        if (!mod.toxic) continue
+        const earned = await tx.pointsLedger.aggregate({
+          where: { userId, cycleId, amount: { gt: 0 } },
+          _sum: { amount: true },
+        })
+        const loss = Math.floor((earned._sum.amount ?? 0) * 0.3)
+        if (loss > 0) {
+          await awardPoints({ userId, cycleId, amount: -loss, type: PointType.CHIP_PENALTY, description: `Week ${cycle.weekNumber} — Toxic` }, tx)
+        }
+      }
+
+      // Bounty — split 20 points among everyone who outscored the bounty target
+      for (const [placerId, mod] of Array.from(modifiers.entries())) {
+        if (!mod.bountyTarget) continue
+        const sums = await tx.pointsLedger.groupBy({
+          by: ['userId'],
+          where: { cycleId, userId: { in: submitterIds } },
+          _sum: { amount: true },
+        })
+        const ptsByUser = new Map(sums.map((s) => [s.userId, s._sum.amount ?? 0]))
+        const targetPts = ptsByUser.get(mod.bountyTarget) ?? 0
+        const winners = submitterIds.filter((uid) => uid !== mod.bountyTarget && (ptsByUser.get(uid) ?? 0) > targetPts)
+        if (winners.length > 0) {
+          const share = Math.floor(20 / winners.length)
+          if (share > 0) {
+            for (const w of winners) {
+              await awardPoints({ userId: w, cycleId, amount: share, type: PointType.CHIP_BONUS, description: `Week ${cycle.weekNumber} — Bounty claimed` }, tx)
+            }
+          }
+        }
+      }
+
+      // Curse — the target loses their streak if they made the podium
+      for (const [userId, mod] of Array.from(modifiers.entries())) {
+        if (!mod.curse) continue
+        if (!podiumUserIds.has(userId)) continue
+        await tx.user.update({ where: { id: userId }, data: { streakWeeks: 0 } })
+      }
+
+      // Time Bomb — detonates two reveals after it was planted (−50 to the target)
+      const activeBombs = await tx.chipActivation.findMany({
+        where: {
+          status: ActivationStatus.RESOLVED,
+          chip: { effectType: ChipEffect.TIME_BOMB },
+          cycleId: { lt: cycleId },
+          effectData: { path: ['cyclesRemaining'], gt: 0 },
+        },
+      })
+      for (const bomb of activeBombs) {
+        const data = bomb.effectData as { cyclesRemaining: number; targetUserId: number } | null
+        if (!data || !data.targetUserId) continue
+        const remaining = data.cyclesRemaining - 1
+        if (remaining <= 0) {
+          await awardPoints({ userId: data.targetUserId, cycleId, amount: -50, type: PointType.CHIP_PENALTY, description: `Week ${cycle.weekNumber} — Time Bomb detonated` }, tx)
+        }
+        await tx.chipActivation.update({
+          where: { id: bomb.id },
+          data: { effectData: { ...data, cyclesRemaining: remaining } },
         })
       }
 
