@@ -1,6 +1,11 @@
 // lib/notify.ts
 import { prisma } from './prisma'
-import { sendEmail, resultsEmail } from './email'
+import { ChipEffect } from '@prisma/client'
+import { sendEmail, resultsEmail, chipHitEmail, achievementEmail, gmChosenEmail } from './email'
+
+// Deception chips — their effect is revealed at reveal, but we don't EMAIL the
+// victim about them (knowing who did it spoils the whodunit). In-app still shows.
+const SECRET_CHIPS = new Set<ChipEffect>([ChipEffect.SWITCHEROO, ChipEffect.COPYCAT, ChipEffect.MUTE])
 
 // ─── In-app notifications ──────────────────────────────────────────────────────
 
@@ -105,17 +110,55 @@ export async function notifyRevealResults(cycleId: number): Promise<void> {
     )
   }
 
-  // Surface offensive chips that landed (hidden until now)
+  // Surface offensive chips that landed (hidden until now) — in-app + email
   const hits = await prisma.chipActivation.findMany({
     where: { cycleId, status: 'RESOLVED', targetUserId: { not: null }, chip: { offensive: true } },
-    include: { chip: { select: { name: true } }, user: { select: { username: true } } },
+    include: {
+      chip: { select: { name: true, slug: true, description: true, effectType: true } },
+      user: { select: { username: true, avatarSeed: true, avatarStyle: true } },
+      targetUser: { select: { id: true, username: true, email: true, emailOptIn: true } },
+    },
   })
   for (const hit of hits) {
-    if (!hit.targetUserId) continue
+    if (!hit.targetUserId || !hit.targetUser) continue
     await notifyUser(
       hit.targetUserId,
       `⚔️ You were hit by **${hit.chip.name}** (from @${hit.user.username}) this week.`
     )
+    // Email the victim — opt-in respected, and NOT for deception/secret chips
+    if (hit.targetUser.emailOptIn && !SECRET_CHIPS.has(hit.chip.effectType)) {
+      await sendEmail({
+        to: hit.targetUser.email,
+        subject: `⚔️ ${hit.chip.name} was played on you — Weekly Beats`,
+        html: chipHitEmail(
+          hit.targetUser.username, hit.user.username, hit.user.avatarSeed, hit.user.avatarStyle,
+          hit.chip.slug, hit.chip.name, hit.chip.description
+        ),
+      })
+    }
+  }
+
+  // Achievements unlocked this reveal — in-app + email
+  const earned = await prisma.userAchievement.findMany({
+    where: { cycleId },
+    include: {
+      achievement: { select: { name: true, description: true, pointsBonus: true, rewardChipSlug: true } },
+      user: { select: { email: true, emailOptIn: true, username: true } },
+    },
+  })
+  for (const ua of earned) {
+    await notifyUser(ua.userId, `🏆 Achievement unlocked: **${ua.achievement.name}**!`)
+    if (ua.user.emailOptIn) {
+      const reward = [
+        ua.achievement.pointsBonus ? `+${ua.achievement.pointsBonus} pts` : null,
+        ua.achievement.rewardChipSlug ? `${ua.achievement.rewardChipSlug} chip` : null,
+      ].filter(Boolean).join(' + ') || null
+      await sendEmail({
+        to: ua.user.email,
+        subject: `🏆 Achievement unlocked — Weekly Beats`,
+        html: achievementEmail(ua.user.username, ua.achievement.name, ua.achievement.description, reward),
+      })
+    }
   }
 
   // Tell defenders when a pre-emptive shield blocked an incoming attack
@@ -136,5 +179,22 @@ export async function notifyRevealResults(cycleId: number): Promise<void> {
       data.defenderId,
       `🛡️ Your ${how} blocked **${b.chip.name}** from @${b.user.username}!`
     )
+  }
+}
+
+// Tell a player they're the Game Master (in-app + opt-in email)
+export async function notifyGmAssigned(userId: number, weekNumber: number, theme?: string | null): Promise<void> {
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { username: true, email: true, emailOptIn: true },
+  })
+  if (!u) return
+  await notifyUser(userId, `👑 You're the Game Master for week ${weekNumber}! Set the theme and score the songs.`)
+  if (u.emailOptIn) {
+    await sendEmail({
+      to: u.email,
+      subject: `👑 You're this week's Game Master — Weekly Beats`,
+      html: gmChosenEmail(u.username, weekNumber, theme),
+    })
   }
 }
