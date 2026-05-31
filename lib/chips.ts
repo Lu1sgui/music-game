@@ -94,18 +94,29 @@ export async function resolveChips(
     }
   }
 
-  // ── Step 1: HAZE / AMNESTY — nuclear option, cancel everything ────────────
-  // Amnesty is the GOLDEN version of Haze: same effect, different tier.
-  const wipeActivation = activations.find(
-    (a) => a.chip.effectType === ChipEffect.HAZE || a.chip.effectType === ChipEffect.AMNESTY
-  )
-  if (wipeActivation) {
+  // ── Step 1: HAZE — nuclear reset, cancel EVERYTHING (buffs included) ──────
+  const hazeActivation = activations.find((a) => a.chip.effectType === ChipEffect.HAZE)
+  if (hazeActivation) {
     await db.chipActivation.updateMany({
       where: { cycleId, status: ActivationStatus.PENDING },
       data: { status: ActivationStatus.CANCELLED, resolvedAt: new Date() },
     })
-    console.log(`[chips] ${wipeActivation.chip.slug} by user ${wipeActivation.userId} — all chips cancelled`)
+    console.log(`[chips] Haze by user ${hazeActivation.userId} — all chips cancelled`)
     return modifiers
+  }
+
+  // ── Step 1b: AMNESTY (golden) — a pardon, NOT a reset ────────────────────
+  // Cancels every OFFENSIVE chip in play this cycle and refunds it; buffs and
+  // defenses still resolve normally. (Distinct from Haze, which nukes it all.)
+  const amnestyActivation = activations.find((a) => a.chip.effectType === ChipEffect.AMNESTY)
+  if (amnestyActivation) {
+    for (const a of activations) {
+      if (a.chip.offensive && !cancelled.has(a.id)) {
+        await cancel(a, { pardoned: true, by: amnestyActivation.userId }, true)
+      }
+    }
+    console.log(`[chips] Amnesty by user ${amnestyActivation.userId} — all offensive chips pardoned`)
+    // do NOT return — buffs/defenses below still resolve
   }
 
   // ── Step 1.5: ANTI-GRIEF CAP — a target takes at most 2 offensive chips ────
