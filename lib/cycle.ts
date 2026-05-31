@@ -676,6 +676,24 @@ export async function applyMetaChipsToNewCycle(prevCycleId: number, newCycleId: 
     })
     console.log(`[meta] Crown: user ${crown.targetUserId} set as GM of cycle ${newCycleId}`)
   }
+
+  // Decree — the chosen theme carries to the new cycle
+  const decree = await prisma.chipActivation.findFirst({
+    where: {
+      cycleId: prevCycleId,
+      status: ActivationStatus.RESOLVED,
+      chip: { effectType: ChipEffect.DECREE },
+    },
+    orderBy: { activatedAt: 'desc' },
+  })
+  const decreeData = decree?.effectData as { theme?: string; themeDescription?: string | null } | null
+  if (decreeData?.theme) {
+    await prisma.weekCycle.update({
+      where: { id: newCycleId },
+      data: { theme: decreeData.theme, themeDescription: decreeData.themeDescription ?? null },
+    })
+    console.log(`[meta] Decree: theme "${decreeData.theme}" set on cycle ${newCycleId}`)
+  }
 }
 
 // ─── Admin force reset ────────────────────────────────────────────────────────

@@ -329,12 +329,12 @@ export async function resolveChips(
         }
         break
 
-      // CROWN: the RESOLVED row carries the chosen GM (targetUserId); applied when
-      // the next cycle is created (see applyMetaChipsToNewCycle).
+      // CROWN / DECREE: golden meta chips. The RESOLVED row carries the choice
+      // (target GM / theme in effectData); applied when the next cycle is created
+      // (see applyMetaChipsToNewCycle).
       case ChipEffect.CROWN:
-        if (activation.targetUserId) {
-          console.log(`[chips] Crown by user ${activation.userId} — picks user ${activation.targetUserId} as next GM`)
-        }
+      case ChipEffect.DECREE:
+        console.log(`[chips] ${activation.chip.slug} by user ${activation.userId} — applied to next cycle`)
         break
 
       case ChipEffect.PICKPOCKET: {

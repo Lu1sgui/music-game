@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     if (!payload) return err('Unauthorized', 401)
 
     const body = await request.json()
-    const { chipSlug, targetUserId } = body
+    const { chipSlug, targetUserId, wildcardSlug, donationSlug, theme, themeDescription } = body
 
     if (!chipSlug) return err('chipSlug is required')
 
@@ -154,6 +154,42 @@ export async function POST(request: NextRequest) {
       effectData = { insight: { songs, chipsPlayed } }
     }
 
+    // WILDCARD: becomes an enabled, non-target Common chip you name
+    if (chip.effectType === ChipEffect.WILDCARD) {
+      if (!wildcardSlug) return err('Wildcard requires choosing a Common chip (wildcardSlug)')
+      const named = await prisma.chip.findUnique({ where: { slug: wildcardSlug } })
+      if (!named || named.rarity !== 'COMMON' || !named.enabled || named.requiresTarget || named.effectType === ChipEffect.WILDCARD) {
+        return err('Wildcard can only become an enabled, non-target Common chip')
+      }
+      resolvedChipId = named.id
+      effectData = { wildcardAs: named.slug }
+    }
+
+    // DECREE: set next week's theme (golden, applied when the next cycle is created)
+    if (chip.effectType === ChipEffect.DECREE) {
+      if (!theme || !String(theme).trim()) return err('Decree requires a theme')
+      effectData = { theme: String(theme).trim().slice(0, 100), themeDescription: themeDescription ? String(themeDescription).trim().slice(0, 500) : null }
+    }
+
+    // DONATION: gift one of your chips to another player (resolves immediately)
+    let donationTransfer: { chipId: number } | null = null
+    if (chip.effectType === ChipEffect.DONATION) {
+      if (!donationSlug) return err('Donation requires choosing a chip to give (donationSlug)')
+      const gift = await prisma.chip.findUnique({ where: { slug: donationSlug } })
+      if (!gift) return err('Chip to donate not found', 404)
+      if (gift.effectType === ChipEffect.DONATION) return err("You can't donate a Donation chip")
+      const owned = await prisma.userChip.findUnique({ where: { userId_chipId: { userId: payload.userId, chipId: gift.id } } })
+      if (!owned || owned.quantity < 1) return err(`You don't have a ${gift.name} to donate`)
+      const recInv = await prisma.userChip.findMany({ where: { userId: targetUserId, quantity: { gt: 0 } } })
+      const recTotal = recInv.reduce((s, uc) => s + uc.quantity, 0)
+      const recExisting = recInv.find((uc) => uc.chipId === gift.id)
+      if (recTotal >= 5 || (recExisting && recExisting.quantity >= 2)) {
+        return err("Recipient can't hold that chip (inventory full)")
+      }
+      donationTransfer = { chipId: gift.id }
+      effectData = { donatedChip: gift.slug }
+    }
+
     // ── Create activation + decrement inventory ───────────────────────────────
     // Re-check the 3/cycle limit INSIDE the transaction so two racing requests
     // can't both slip past the pre-check above.
@@ -173,13 +209,14 @@ export async function POST(request: NextRequest) {
           chipId: resolvedChipId,
           cycleId: cycle.id,
           targetUserId: targetUserId ?? null,
-          // Informational / intel chips resolve immediately; the rest wait for reveal
+          // Informational / intel / instant chips resolve immediately; the rest wait for reveal
           status: (
             [
               ChipEffect.FLASH,
               ChipEffect.CONFUSE_RAY,
               ChipEffect.FORESIGHT,
               ChipEffect.INSIGHT,
+              ChipEffect.DONATION,
             ] as ChipEffect[]
           ).includes(chip.effectType)
             ? ActivationStatus.RESOLVED
@@ -192,6 +229,19 @@ export async function POST(request: NextRequest) {
         where: { userId_chipId: { userId: payload.userId, chipId: chip.id } },
         data: { quantity: { decrement: 1 } },
       })
+
+      // Donation — transfer the gifted chip from activator to the target now
+      if (donationTransfer && targetUserId) {
+        await tx.userChip.update({
+          where: { userId_chipId: { userId: payload.userId, chipId: donationTransfer.chipId } },
+          data: { quantity: { decrement: 1 } },
+        })
+        await tx.userChip.upsert({
+          where: { userId_chipId: { userId: targetUserId, chipId: donationTransfer.chipId } },
+          update: { quantity: { increment: 1 }, lastAcquiredAt: new Date() },
+          create: { userId: targetUserId, chipId: donationTransfer.chipId, quantity: 1, lastAcquiredAt: new Date() },
+        })
+      }
       return act
     })
 
