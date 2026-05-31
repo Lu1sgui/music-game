@@ -85,6 +85,13 @@ export default function LoginPage() {
                        color: 'var(--pink)', fontFamily: 'var(--font-ui)', fontWeight: 600 }}>
               CREATE ACCOUNT
             </button>
+            <div style={{ marginTop: '0.75rem' }}>
+              <button type="button" onClick={() => router.push('/manual')}
+                style={{ background: 'none', border: 'none', cursor: 'pointer',
+                         color: 'var(--cyan)', fontFamily: 'var(--font-ui)', fontWeight: 600 }}>
+                📖 READ THE GAME MANUAL
+              </button>
+            </div>
           </div>
         </form>
       </div>
