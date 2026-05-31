@@ -2,9 +2,10 @@
 // app/chips/page.tsx — play up to 3 chips per cycle (Activation model v2)
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Zap, Shield, Swords, Crown } from 'lucide-react'
+import { Zap } from 'lucide-react'
 import { useAuth, useApi } from '../context/AuthContext'
 import LoadingScreen from '../components/LoadingScreen'
+import { ChipIconGlowing } from '../components/ChipIcon'
 
 const RARITY_COLOR: Record<string, string> = { COMMON: '#888780', RARE: '#7F77DD', LEGENDARY: '#FFD700', GOLDEN: '#FF8A00' }
 // Enabled, non-target Common chips a Wildcard may become
@@ -123,12 +124,11 @@ export default function ChipsPage() {
             const c = uc.chip
             const canPlay = playable(c) && !atLimit && !sporeLocked
             const isSel = selected?.chip?.slug === c.slug
-            const Icon = c.offensive ? Swords : c.rarity === 'GOLDEN' ? Crown : (c.effectType === 'PROTECT' || c.effectType === 'CLEANSE' || c.effectType === 'MIRROR_COAT' || c.effectType === 'INSURANCE') ? Shield : Zap
             return (
               <div key={c.slug} className="card" style={{ padding: '0.875rem 1rem', borderLeft: `3px solid ${RARITY_COLOR[c.rarity] ?? '#888'}`, opacity: canPlay || isSel ? 1 : 0.55 }}>
                 <div className="flex-between">
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <Icon size={16} style={{ color: RARITY_COLOR[c.rarity] ?? '#888' }} />
+                    <ChipIconGlowing slug={c.slug} rarity={c.rarity} size={26} />
                     <div>
                       <div className="font-ui" style={{ fontSize: '0.95rem' }}>{c.name} <span style={{ color: 'var(--cyan)', fontSize: '0.75rem' }}>×{uc.quantity}</span></div>
                       <div style={{ fontSize: '0.72rem', color: RARITY_COLOR[c.rarity] ?? '#888' }}>{c.rarity} · {c.phase === 'OPEN_ONLY' ? 'Tue–Fri' : 'until reveal'}</div>
