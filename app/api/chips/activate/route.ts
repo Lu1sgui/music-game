@@ -2,9 +2,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
-import { CycleStatus, ChipEffect, ActivationStatus } from '@prisma/client'
+import { CycleStatus, ChipEffect, ChipPhase, ActivationStatus } from '@prisma/client'
 import { isSporeLocked } from '@/lib/chips'
 import { getAuth, ok, err } from '@/lib/api'
+
+// Activation model v2: up to 3 chip activations per player per cycle
+const MAX_CHIPS_PER_CYCLE = 3
+const CHIP_LIMIT_SENTINEL = 'CHIP_LIMIT_REACHED'
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,6 +23,7 @@ export async function POST(request: NextRequest) {
     // Get chip from catalog
     const chip = await prisma.chip.findUnique({ where: { slug: chipSlug } })
     if (!chip) return err(`Chip "${chipSlug}" not found`, 404)
+    if (!chip.enabled) return err(`${chip.name} isn't available yet — coming soon!`, 422)
 
     // Target required check
     if (chip.requiresTarget && !targetUserId) {
@@ -28,12 +33,17 @@ export async function POST(request: NextRequest) {
       return err('You cannot target yourself')
     }
 
-    // Get current open cycle
+    // Live cycle = OPEN or CLOSED. OPEN_ONLY chips (offensive / song-touching) need OPEN;
+    // ANYTIME chips (defense / intel) may be played through CLOSED up to the Monday reveal.
     const cycle = await prisma.weekCycle.findFirst({
-      where: { status: CycleStatus.OPEN },
+      where: { status: { in: [CycleStatus.OPEN, CycleStatus.CLOSED] } },
       orderBy: { createdAt: 'desc' },
     })
-    if (!cycle) return err('No cycle is currently open', 422)
+    if (!cycle) return err('No active cycle right now', 422)
+
+    if (chip.phase === ChipPhase.OPEN_ONLY && cycle.status !== CycleStatus.OPEN) {
+      return err(`${chip.name} can only be played while submissions are open (until Friday)`, 422)
+    }
 
     // Check Spore lock — can't use chips if locked
     const sporeLocked = await isSporeLocked(payload.userId, cycle.id)
@@ -41,16 +51,16 @@ export async function POST(request: NextRequest) {
       return err('You are Spore-locked and cannot activate chips this week', 403)
     }
 
-    // Check user hasn't already activated a chip this cycle (max 1 per week)
-    const alreadyActivated = await prisma.chipActivation.findFirst({
+    // Max 3 activations per cycle (friendly pre-check; re-checked atomically below)
+    const activationCount = await prisma.chipActivation.count({
       where: {
         userId: payload.userId,
         cycleId: cycle.id,
         status: { in: [ActivationStatus.PENDING, ActivationStatus.RESOLVED] },
       },
     })
-    if (alreadyActivated) {
-      return err('You have already activated a chip this week', 409)
+    if (activationCount >= MAX_CHIPS_PER_CYCLE) {
+      return err(`You've already played ${MAX_CHIPS_PER_CYCLE} chips this week`, 409)
     }
 
     // Check user owns the chip
@@ -109,6 +119,7 @@ export async function POST(request: NextRequest) {
         where: {
           effectType: { not: ChipEffect.METRONOME }, // can't roll another Metronome
           requiresTarget: false,                     // can't roll a chip that needs a target
+          enabled: true,                             // only roll playable chips
         },
       })
       if (allChips.length === 0) return err('No chip available to roll for Metronome', 422)
@@ -118,9 +129,19 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Create activation + decrement inventory ───────────────────────────────
+    // Re-check the 3/cycle limit INSIDE the transaction so two racing requests
+    // can't both slip past the pre-check above.
+    const activation = await prisma.$transaction(async (tx) => {
+      const count = await tx.chipActivation.count({
+        where: {
+          userId: payload.userId,
+          cycleId: cycle.id,
+          status: { in: [ActivationStatus.PENDING, ActivationStatus.RESOLVED] },
+        },
+      })
+      if (count >= MAX_CHIPS_PER_CYCLE) throw new Error(CHIP_LIMIT_SENTINEL)
 
-    const [activation] = await prisma.$transaction([
-      prisma.chipActivation.create({
+      const act = await tx.chipActivation.create({
         data: {
           userId: payload.userId,
           chipId: resolvedChipId,
@@ -135,12 +156,13 @@ export async function POST(request: NextRequest) {
           effectData: effectData ?? Prisma.JsonNull,
         },
         include: { chip: true },
-      }),
-      prisma.userChip.update({
+      })
+      await tx.userChip.update({
         where: { userId_chipId: { userId: payload.userId, chipId: chip.id } },
         data: { quantity: { decrement: 1 } },
-      }),
-    ])
+      })
+      return act
+    })
 
     return ok({
       message: `${chip.name} activated`,
@@ -148,9 +170,8 @@ export async function POST(request: NextRequest) {
       ...(effectData ? { details: effectData } : {}),
     }, 201)
   } catch (e: any) {
-    // Unique violation on (userId, cycleId) — two activate requests raced
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-      return err('You have already activated a chip this week', 409)
+    if (e?.message === CHIP_LIMIT_SENTINEL) {
+      return err(`You've already played ${MAX_CHIPS_PER_CYCLE} chips this week`, 409)
     }
     console.error('[app/api/chips/activate/route.ts]', e?.message ?? e)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

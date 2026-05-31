@@ -65,11 +65,18 @@ enum ChipRarity {
   COMMON
   RARE
   LEGENDARY
+  GOLDEN // ultra-rare meta tier (Crown, Decree, Amnesty, Extra Time, Double Header)
+}
+
+// When a chip may be activated during the week (Activation model v2)
+enum ChipPhase {
+  OPEN_ONLY // only while submissions are OPEN (Tue–Fri) — offensive + song-touching chips
+  ANYTIME   // OPEN or CLOSED, up to the Monday reveal — defensive / intel chips
 }
 
 // One enum value per chip — drives the chip resolution engine
 enum ChipEffect {
-  // Common
+  // ── Common ──
   FLASH
   SMOKESCREEN
   SUBSTITUTE
@@ -77,7 +84,7 @@ enum ChipEffect {
   SWIFT
   HAZE
   NIGHT_SHADE
-  // Rare
+  // ── Rare ──
   SWORDS_DANCE
   DOUBLE_TEAM
   DISABLE
@@ -85,13 +92,50 @@ enum ChipEffect {
   MIMIC
   CONFUSE_RAY
   LEECH_SEED
-  // Legendary
+  // ── Legendary ──
   MEGA_DRAIN
   SCREECH
   METRONOME
   SPORE
   BIDE
   SKULL_BASH
+
+  // ─────────────── Expansion ───────────────
+  // New Common
+  CUSHION
+  SPOTLIGHT
+  INSIGHT
+  // New Rare (aggressive / defensive / economy)
+  TOXIC
+  PAYDAY
+  PROTECT
+  GAMBLE
+  PICKPOCKET
+  BOUNTY
+  CLEANSE
+  FORESIGHT
+  BANKER
+  MUTE
+  USURP
+  MIRROR_COAT
+  WILDCARD
+  // New Common (utility/defense)
+  INSURANCE
+  DONATION
+  // New Legendary
+  BLACKOUT
+  VETO
+  EARTHQUAKE
+  TIME_BOMB
+  SWITCHEROO
+  COPYCAT
+  CURSE
+  // New Golden (meta)
+  CROWN
+  DECREE
+  AMNESTY
+  EXTRA_TIME
+  DOUBLE_HEADER
 }
 
 enum ActivationStatus {
@@ -115,6 +159,7 @@ model User {
   avatarSeed   String?  @map("avatar_seed") @db.VarChar(30)
   avatarStyle  String   @default("miniavs") @map("avatar_style") @db.VarChar(20)
   mustChangePassword Boolean @default(false) @map("must_change_password")
+  emailOptIn   Boolean  @default(true) @map("email_opt_in") // receive non-transactional emails (results, broadcasts)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -252,6 +297,9 @@ model Chip {
   effectType     ChipEffect @map("effect_type")
   requiresTarget Boolean    @default(false) @map("requires_target")
   rarity         ChipRarity
+  phase          ChipPhase  @default(OPEN_ONLY) // when it can be activated (v2 windows)
+  offensive      Boolean    @default(false) // counts toward a target's anti-grief cap (max 2/cycle); hidden until reveal
+  enabled        Boolean    @default(true) // false = in catalog but not yet playable (effect not implemented)
 
   userChips       UserChip[]
   chipActivations ChipActivation[]
@@ -297,7 +345,10 @@ model ChipActivation {
   cycle      WeekCycle @relation(fields: [cycleId], references: [id])
   targetUser User?     @relation("Target", fields: [targetUserId], references: [id])
 
-  @@unique([userId, cycleId]) // one chip activation per player per cycle — also closes the activate race
+  // v2: players may activate up to 3 chips per cycle — the max is enforced in the
+  // activate route inside a transaction. (The old unique(userId,cycleId) that capped
+  // it at 1 was removed for the multi-chip model.)
+  @@index([userId, cycleId]) // count a player's activations this cycle
   @@index([cycleId, status]) // queried heavily during chip resolution
   @@map("chip_activations")
 }

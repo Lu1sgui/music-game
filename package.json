@@ -13,7 +13,8 @@
     "db:seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts",
     "db:studio": "prisma studio",
     "db:reset": "tsx prisma/reset.ts",
-    "db:demo": "tsx prisma/demo-seed.ts"
+    "db:demo": "tsx prisma/demo-seed.ts",
+    "db:seed-expansion": "tsx prisma/expansion-seed.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.14.0",
