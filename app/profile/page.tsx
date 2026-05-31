@@ -176,7 +176,12 @@ export default function ProfilePage() {
       <div style={{ marginBottom:'1rem' }}>
         <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:'0.5rem' }}>
           <span className="font-pixel txt-yellow" style={{ fontSize:9 }}>⚡ CHIPS</span>
-          <span style={{ fontSize:'0.72rem', color:'var(--muted)', marginLeft:'auto' }}>
+          <button onClick={() => router.push('/chips')}
+            style={{ marginLeft:'auto', background:'none', border:'1px solid var(--yellow)', color:'var(--yellow)',
+                     borderRadius:4, padding:'3px 10px', cursor:'pointer', fontFamily:'var(--font-ui)', fontWeight:700, fontSize:'0.72rem' }}>
+            PLAY ▸
+          </button>
+          <span style={{ fontSize:'0.72rem', color:'var(--muted)' }}>
             {chips.reduce((s: number, c: any) => s + c.quantity, 0)} / 5
           </span>
         </div>

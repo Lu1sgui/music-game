@@ -10,6 +10,7 @@ const NAV = [
   { path: '/',        label: 'Home',       Icon: Home },
   { path: '/ladder',  label: 'Ranking',    Icon: Trophy },
   { path: '/submit',  label: 'Submit Song',Icon: Music },
+  { path: '/chips',   label: 'My Chips',   Icon: Zap },
   { path: '/archive', label: 'Archive',    Icon: Archive },
   { path: '/profile', label: 'Profile',    Icon: User },
 ]
