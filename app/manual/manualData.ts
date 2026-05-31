@@ -76,7 +76,7 @@ export const CHIP_GROUPS: { rarity: string; color: string; chips: ManualChip[] }
     chips: [
       { name: 'Crown', effect: 'You choose the Game Master for the next cycle (yourself included).', kind: 'Meta', when: 'Tue–Fri' },
       { name: 'Decree', effect: "You set next week's theme.", kind: 'Meta', when: 'Tue–Fri' },
-      { name: 'Amnesty', effect: 'Cancels ALL chips in play this cycle, yours included — the golden reset.', kind: 'Defense', when: 'Until reveal' },
+      { name: 'Amnesty', effect: 'A pardon: cancels every OFFENSIVE chip in play this cycle and refunds it. Buffs and defenses still resolve (unlike Haze, which wipes everything).', kind: 'Defense', when: 'Until reveal' },
       { name: 'Double Header', effect: 'The next cycle crowns TWO winners (two 1st places).', kind: 'Meta', when: 'Tue–Fri' },
       { name: 'Extra Time', effect: 'Extends the submission window 24 hours for everyone.', kind: 'Meta', when: 'Tue–Fri' },
     ],

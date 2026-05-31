@@ -6,65 +6,65 @@
 const MEME_BASE = 'https://raw.githubusercontent.com/shuqikhor/pixel-icons/main/icons'
 const ICON_BASE = 'https://sqkhor.com/pixel-icons/icons'  // fallback for non-meme icons
 
-// Chip → pixel icon mapping (thematic pairings). Every chip has a real icon.
+// Chip → pixel icon mapping. Every chip has a UNIQUE icon; chips named after
+// Pokémon moves use a thematically-matched Pokémon where one fits.
 const CHIP_ICON: Record<string, string> = {
-  // ── Common ──
-  'flash':         'surprised-pikachu', // ⚡ PIKACHU IS SHOCKED
-  'smokescreen':   'this-is-fine',      // 🔥 this is fine (can't see)
-  'substitute':    'spooderman',        // 👥 pointing at your copy
-  'recover':       'take-my-money',     // 💊 I'll pay anything to heal
-  'swift':         'nyan-cat',          // 🌈 nyan at full speed
-  'haze':          'sad-pepe',          // 😢 confused in the haze
-  'night-shade':   'rickroll',          // 🌙 nobody expects it
-  // ── Rare ──
-  'swords-dance':  'stonks',            // 📈 attack going STONKS
-  'double-team':   'spooderman',        // 👥 two of you now
-  'disable':       'sad-pepe',          // 😢 your move is disabled
-  'reflect':       'surprised-pikachu', // 😮 bounced back! surprise!
-  'mimic':         'nyan-cat',          // 🎵 copying your whole vibe
-  'confuse-ray':   'sacabambaspis',     // 🐟 this fish confuses EVERYONE
-  'leech-seed':    'this-is-fine',      // 🌱 slowly draining, this is fine
-  // ── Legendary ──
-  'mega-drain':    'stonks',            // 📈 reverse stonks for you
-  'screech':       'rickroll',          // 🎤 unexpected screech attack
-  'metronome':     'sacabambaspis',     // 🎲 chaotic prehistoric randomness
-  'spore':         'sad-pepe',          // 😴 sleepy sad pepe energy
-  'bide':          'take-my-money',     // 💰 saving up, investing energy
-  'skull-bash':    'nyan-cat',          // 💀 nyan of destruction
-
+  // ── Common (Pokémon moves) ──
+  'flash':         'pikachu',           // ⚡ electric flash
+  'smokescreen':   'cloud',             // 💨 a screen of smoke
+  'substitute':    'spooderman',        // 🕸️ pointing at your double
+  'recover':       'chansey',           // 💗 Chansey heals (Softboiled)
+  'swift':         'pichu',             // ⚡ small and fast
+  'haze':          'wind',              // 🌫️ blows the field clean
+  'night-shade':   'ghost-blue',        // 👻 a dark shade
+  // ── Rare (Pokémon moves) ──
+  'swords-dance':  'dancing-man',       // 🕺 a dance that boosts attack
+  'double-team':   'users',            // 👥 copies of you
+  'disable':       'lock',              // 🔒 move locked
+  'reflect':       'surprised-pikachu', // 😮 bounced back!
+  'mimic':         'eevee',             // 🦊 Eevee adapts / copies
+  'confuse-ray':   'psyduck',           // 🦆 Psyduck = pure confusion
+  'leech-seed':    'bulbasaur',         // 🌱 Bulbasaur's signature seed
+  // ── Legendary (Pokémon moves) ──
+  'mega-drain':    'chikorita',         // 🌿 grass-type drain
+  'screech':       'sound-high',        // 📢 an ear-splitting screech
+  'metronome':     'game-controller',   // 🎮 random move roulette
+  'spore':         'jigglypuff',        // 😴 puts you to sleep
+  'bide':          'slowpoke',          // 🐢 waits… then strikes
+  'skull-bash':    't-rex',             // 🦖 a charging headbutt
   // ── Expansion: Common ──
-  'cushion':       'koala-hug',         // 🛋️ soft hug
+  'cushion':       'koala-hug',         // 🐨 a soft landing
   'spotlight':     'star',              // ⭐ podium shine
   'insight':       'magnifier',         // 🔍 look closer
   'insurance':     'umbrella',          // ☂️ covered
   'donation':      'gift',              // 🎁 a present
   // ── Expansion: Rare ──
   'toxic':         'frog',              // 🐸 poison-dart frog
-  'payday':        'stonks',            // 📈 money up
-  'protect':       'tortoise',          // 🐢 hard shell
+  'payday':        'meowth',            // 😼 Meowth's signature Pay Day
+  'protect':       'squirtle',          // 🐢 Squirtle withdraws into its shell
   'gamble':        'maneki-neko',       // 🐱 lucky cat
-  'pickpocket':    'meowth',            // 😼 steals your coins
-  'bounty':        'ribbon',            // 🎗️ prize on their head
+  'pickpocket':    'scissors',          // ✂️ cuts your purse
+  'bounty':        'ribbon',            // 🎗️ a prize on their head
   'cleanse':       'sparkles',          // ✨ wiped clean
   'foresight':     'owl-1',             // 🦉 sees in the dark
   'banker':        'credit-card',       // 💳 bank it
   'mute':          'sound-mute',        // 🔇 silenced
   'usurp':         'mario-jump',        // 🍄 leap over them
-  'mirror-coat':   'mirror-ball',       // 🪩 reflect
+  'mirror-coat':   'lapras',            // 🐉 Lapras learns Mirror Coat
   'wildcard':      'pinata',            // 🪅 random surprise
   // ── Expansion: Legendary ──
   'blackout':      'moon',              // 🌑 lights out
   'veto':          'thumb-down',        // 👎 denied
-  'earthquake':    't-rex',             // 🦖 ground-shaking stomp
+  'earthquake':    'diglett',           // ⛰️ Diglett digs / quakes the ground
   'time-bomb':     'clock',             // ⏰ ticking
   'switcheroo':    'magikarp',          // 🐟 swapped for a flop
   'copycat':       'copy',              // 📋 exact copy
-  'curse':         'ghost',             // 👻 haunted
+  'curse':         'ghost-red',         // 👻 a haunting curse
   // ── Expansion: Golden ──
   'crown':         'sunglasses',        // 😎 you're the boss
   'decree':        'message',           // 📣 proclamation
-  'amnesty':       'rainbow',           // 🌈 all is forgiven
-  'double-header': 'users',             // 👥 two winners
+  'amnesty':       'rainbow',           // 🌈 a full pardon
+  'double-header': 'thumb-up',          // 👍 two winners
   'extra-time':    'calendar',          // 📅 more time
 }
 
