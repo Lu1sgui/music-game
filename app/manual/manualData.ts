@@ -19,7 +19,6 @@ export const CHIP_GROUPS: { rarity: string; color: string; chips: ManualChip[] }
       { name: 'Substitute', effect: "If you don't reach the podium, you still earn 3rd-place points.", kind: 'Self', when: 'Tue–Fri' },
       { name: 'Recover', effect: 'Keep your participation streak even if you skip a submission this week.', kind: 'Self', when: 'Tue–Fri' },
       { name: 'Swift', effect: 'Double your participation points.', kind: 'Self', when: 'Tue–Fri' },
-      { name: 'Haze', effect: 'Cancels ALL chips in play this cycle — yours included. The reset button.', kind: 'Defense', when: 'Until reveal' },
       { name: 'Night Shade', effect: 'Your rank and total are hidden on the ladder this week.', kind: 'Utility', when: 'Tue–Fri' },
       { name: 'Cushion', effect: "If you don't make the podium, your participation points are +50%.", kind: 'Self', when: 'Tue–Fri' },
       { name: 'Spotlight', effect: 'If you reach the podium, gain +15 bonus points.', kind: 'Self', when: 'Tue–Fri' },
@@ -56,6 +55,8 @@ export const CHIP_GROUPS: { rarity: string; color: string; chips: ManualChip[] }
   {
     rarity: 'LEGENDARY', color: '#FFD700',
     chips: [
+      { name: 'Haze', effect: 'Cancels ALL chips in play this cycle — yours included. The full reset.', kind: 'Defense', when: 'Until reveal' },
+      { name: 'Amnesty', effect: 'A pardon: cancels every OFFENSIVE chip in play this cycle and refunds it. Buffs and defenses still resolve (unlike Haze, which wipes everything).', kind: 'Defense', when: 'Until reveal' },
       { name: 'Mega Drain', effect: "Siphon 50% of the target's earnings this cycle to yourself.", kind: 'Offensive', when: 'Tue–Fri', counters: 'Mirror Coat, Cleanse, Protect, Reflect' },
       { name: 'Screech', effect: 'Knock the target down one podium tier (1st→2nd, etc.).', kind: 'Offensive', when: 'Tue–Fri', counters: 'Reflect, Cleanse, Protect' },
       { name: 'Metronome', effect: 'Play a random chip — you never know what you get.', kind: 'Utility', when: 'Tue–Fri' },
@@ -76,7 +77,6 @@ export const CHIP_GROUPS: { rarity: string; color: string; chips: ManualChip[] }
     chips: [
       { name: 'Crown', effect: 'You choose the Game Master for the next cycle (yourself included).', kind: 'Meta', when: 'Tue–Fri' },
       { name: 'Decree', effect: "You set next week's theme.", kind: 'Meta', when: 'Tue–Fri' },
-      { name: 'Amnesty', effect: 'A pardon: cancels every OFFENSIVE chip in play this cycle and refunds it. Buffs and defenses still resolve (unlike Haze, which wipes everything).', kind: 'Defense', when: 'Until reveal' },
       { name: 'Double Header', effect: 'The next cycle crowns TWO winners (two 1st places).', kind: 'Meta', when: 'Tue–Fri' },
       { name: 'Extra Time', effect: 'Extends the submission window 24 hours for everyone.', kind: 'Meta', when: 'Tue–Fri' },
     ],

@@ -58,7 +58,7 @@ const CHIPS = [
     description: 'All chips activated this week by every player — including yours — are nullified.',
     effectType: ChipEffect.HAZE,
     requiresTarget: false,
-    rarity: ChipRarity.COMMON,
+    rarity: ChipRarity.LEGENDARY,
   },
   {
     slug: 'night-shade',

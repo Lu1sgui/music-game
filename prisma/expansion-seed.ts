@@ -71,7 +71,11 @@ const CHIPS: ChipSeed[] = [
   // ── New GOLDEN (meta) ───────────────────────────────────────────────────
   { slug: 'crown',         name: 'Crown',         description: 'You choose the Game Master for the next cycle.',                       effectType: ChipEffect.CROWN,         rarity: ChipRarity.GOLDEN, requiresTarget: true,  phase: ChipPhase.OPEN_ONLY, offensive: false, enabled: true },
   { slug: 'decree',        name: 'Decree',        description: "You set next week's theme.",                                           effectType: ChipEffect.DECREE,        rarity: ChipRarity.GOLDEN, requiresTarget: false, phase: ChipPhase.OPEN_ONLY, offensive: false, enabled: true },
-  { slug: 'amnesty',       name: 'Amnesty',       description: 'A pardon: cancels every OFFENSIVE chip in play this cycle and refunds it. Buffs and defenses still work.', effectType: ChipEffect.AMNESTY, rarity: ChipRarity.GOLDEN, requiresTarget: false, phase: ChipPhase.ANYTIME, offensive: false, enabled: true },
+  { slug: 'amnesty',       name: 'Amnesty',       description: 'A pardon: cancels every OFFENSIVE chip in play this cycle and refunds it. Buffs and defenses still work.', effectType: ChipEffect.AMNESTY, rarity: ChipRarity.LEGENDARY, requiresTarget: false, phase: ChipPhase.ANYTIME, offensive: false, enabled: true },
+
+  // ── Override of an ORIGINAL chip: Haze promoted COMMON → LEGENDARY ──
+  // (cancelling the whole board is a legendary-tier effect)
+  { slug: 'haze',          name: 'Haze',          description: 'Cancels ALL chips in play this cycle — yours included. The full reset.', effectType: ChipEffect.HAZE, rarity: ChipRarity.LEGENDARY, requiresTarget: false, phase: ChipPhase.ANYTIME, offensive: false, enabled: true },
   { slug: 'extra-time',    name: 'Extra Time',    description: 'Extends the submission window by 24 hours for everyone.',               effectType: ChipEffect.EXTRA_TIME,    rarity: ChipRarity.GOLDEN, requiresTarget: false, phase: ChipPhase.OPEN_ONLY, offensive: false, enabled: true },
   { slug: 'double-header', name: 'Double Header', description: 'The next cycle crowns two winners (two 1st places).',                  effectType: ChipEffect.DOUBLE_HEADER, rarity: ChipRarity.GOLDEN, requiresTarget: false, phase: ChipPhase.OPEN_ONLY, offensive: false, enabled: true },
 ]
@@ -100,6 +104,37 @@ async function main() {
     if (!existing) achCreated++
   }
   console.log(`[expansion-seed] ${ACHIEVEMENTS.length} achievements processed — ${achCreated} created`)
+
+  // ── One-time migration: Haze is now Legendary, so swap any Haze a player
+  // currently holds for a random enabled Common chip (respecting caps). Idempotent:
+  // once no one holds Haze, this does nothing.
+  const haze = await prisma.chip.findUnique({ where: { slug: 'haze' } })
+  if (haze) {
+    const commons = await prisma.chip.findMany({ where: { rarity: 'COMMON', enabled: true } })
+    const holders = await prisma.userChip.findMany({ where: { chipId: haze.id, quantity: { gt: 0 } } })
+    let swapped = 0
+    for (const h of holders) {
+      const count = h.quantity
+      await prisma.userChip.update({ where: { id: h.id }, data: { quantity: 0 } })
+      for (let i = 0; i < count && commons.length > 0; i++) {
+        // pick a random common the player can still hold (max 2 each)
+        const inv = await prisma.userChip.findMany({ where: { userId: h.userId, quantity: { gt: 0 } } })
+        const pool = commons.filter((c) => {
+          const owned = inv.find((uc) => uc.chipId === c.id)?.quantity ?? 0
+          return owned < 2
+        })
+        if (pool.length === 0) break
+        const pick = pool[Math.floor(Math.random() * pool.length)]
+        await prisma.userChip.upsert({
+          where: { userId_chipId: { userId: h.userId, chipId: pick.id } },
+          update: { quantity: { increment: 1 }, lastAcquiredAt: new Date() },
+          create: { userId: h.userId, chipId: pick.id, quantity: 1, lastAcquiredAt: new Date() },
+        })
+      }
+      swapped++
+    }
+    if (swapped > 0) console.log(`[expansion-seed] swapped Haze → random Common for ${swapped} players`)
+  }
 }
 
 main()
