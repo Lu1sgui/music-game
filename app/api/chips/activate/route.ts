@@ -128,6 +128,31 @@ export async function POST(request: NextRequest) {
       effectData = { rolledChip: rolled.slug, rolledEffect: rolled.effectType }
     }
 
+    // FORESIGHT: reveal who has targeted you with an offensive chip so far this week
+    if (chip.effectType === ChipEffect.FORESIGHT) {
+      const incoming = await prisma.chipActivation.findMany({
+        where: {
+          targetUserId: payload.userId,
+          cycleId: cycle.id,
+          status: { in: [ActivationStatus.PENDING, ActivationStatus.RESOLVED] },
+          chip: { offensive: true },
+        },
+        include: { chip: { select: { name: true } }, user: { select: { username: true } } },
+      })
+      effectData = { foresight: incoming.map((a) => ({ from: a.user.username, chip: a.chip.name })) }
+    }
+
+    // INSIGHT: how many songs and chips have been played this week
+    if (chip.effectType === ChipEffect.INSIGHT) {
+      const [songs, chipsPlayed] = await Promise.all([
+        prisma.submission.count({ where: { cycleId: cycle.id } }),
+        prisma.chipActivation.count({
+          where: { cycleId: cycle.id, status: { in: [ActivationStatus.PENDING, ActivationStatus.RESOLVED] } },
+        }),
+      ])
+      effectData = { insight: { songs, chipsPlayed } }
+    }
+
     // ── Create activation + decrement inventory ───────────────────────────────
     // Re-check the 3/cycle limit INSIDE the transaction so two racing requests
     // can't both slip past the pre-check above.
@@ -147,12 +172,17 @@ export async function POST(request: NextRequest) {
           chipId: resolvedChipId,
           cycleId: cycle.id,
           targetUserId: targetUserId ?? null,
-          // Flash and Confuse Ray are informational — mark resolved immediately
-          status:
-            chip.effectType === ChipEffect.FLASH ||
-            chip.effectType === ChipEffect.CONFUSE_RAY
-              ? ActivationStatus.RESOLVED
-              : ActivationStatus.PENDING,
+          // Informational / intel chips resolve immediately; the rest wait for reveal
+          status: (
+            [
+              ChipEffect.FLASH,
+              ChipEffect.CONFUSE_RAY,
+              ChipEffect.FORESIGHT,
+              ChipEffect.INSIGHT,
+            ] as ChipEffect[]
+          ).includes(chip.effectType)
+            ? ActivationStatus.RESOLVED
+            : ActivationStatus.PENDING,
           effectData: effectData ?? Prisma.JsonNull,
         },
         include: { chip: true },

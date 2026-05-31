@@ -20,6 +20,10 @@ export interface ChipModifier {
   nightShade?: boolean        // Night Shade: rank/total hidden on ladder
   megaDrainTarget?: number    // Mega Drain: userId of the target to siphon from
   skullBashTarget?: number    // Skull Bash: userId of the challenged player
+  // ── Expansion (self-effect chips) ──
+  cushion?: boolean           // Cushion: +50% participation if NOT on podium
+  spotlight?: boolean         // Spotlight: +15 bonus if ON podium
+  gamble?: boolean            // Gamble: ×1.5 if on podium, −20 if not
 }
 
 // Chip types that can be reflected by Reflect
@@ -49,14 +53,17 @@ export async function resolveChips(
     return modifiers.get(userId)!
   }
 
-  // ── Step 1: HAZE — nuclear option, cancel everything ─────────────────────
-  const hazeActivation = activations.find((a) => a.chip.effectType === ChipEffect.HAZE)
-  if (hazeActivation) {
+  // ── Step 1: HAZE / AMNESTY — nuclear option, cancel everything ────────────
+  // Amnesty is the GOLDEN version of Haze: same effect, different tier.
+  const wipeActivation = activations.find(
+    (a) => a.chip.effectType === ChipEffect.HAZE || a.chip.effectType === ChipEffect.AMNESTY
+  )
+  if (wipeActivation) {
     await db.chipActivation.updateMany({
       where: { cycleId, status: ActivationStatus.PENDING },
       data: { status: ActivationStatus.CANCELLED, resolvedAt: new Date() },
     })
-    console.log(`[chips] Haze activated by user ${hazeActivation.userId} — all chips cancelled`)
+    console.log(`[chips] ${wipeActivation.chip.slug} by user ${wipeActivation.userId} — all chips cancelled`)
     return modifiers
   }
 
@@ -133,11 +140,29 @@ export async function resolveChips(
       // METRONOME:   rolls a random non-target chip at activation (activate route).
       // CONFUSE_RAY: currently cosmetic only — no scoring effect is implemented.
       //              TODO: define its real effect or remove the chip.
+      // FORESIGHT/INSIGHT: intel chips, resolved at activation time (activate route).
+      // AMNESTY: handled in step 1 (golden Haze).
       case ChipEffect.FLASH:
       case ChipEffect.CONFUSE_RAY:
       case ChipEffect.DOUBLE_TEAM:
       case ChipEffect.MIMIC:
       case ChipEffect.METRONOME:
+      case ChipEffect.FORESIGHT:
+      case ChipEffect.INSIGHT:
+      case ChipEffect.AMNESTY:
+        break
+
+      // ── Expansion: self-effect chips ─────────────────────────────────────
+      case ChipEffect.CUSHION:
+        userMod.cushion = true
+        break
+
+      case ChipEffect.SPOTLIGHT:
+        userMod.spotlight = true
+        break
+
+      case ChipEffect.GAMBLE:
+        userMod.gamble = true
         break
 
       // ── Common chips ─────────────────────────────────────────────────────

@@ -352,6 +352,16 @@ export async function revealCycle(cycleId: number) {
           pts = Math.round(pts * mod.pointsMultiplier)
         }
 
+        // Gamble — ×1.5 when you reach the podium
+        if (mod?.gamble) {
+          pts = Math.round(pts * 1.5)
+        }
+
+        // Spotlight — flat +15 bonus on the podium
+        if (mod?.spotlight) {
+          pts += 15
+        }
+
         await awardPoints({
           userId: result.userId,
           cycleId,
@@ -380,7 +390,12 @@ export async function revealCycle(cycleId: number) {
         }
 
         // Swift — double participation points
-        const pts = mod?.swiftDouble ? POINTS.PARTICIPATION * 2 : POINTS.PARTICIPATION
+        let pts = mod?.swiftDouble ? POINTS.PARTICIPATION * 2 : POINTS.PARTICIPATION
+
+        // Cushion — +50% participation when you DON'T reach the podium
+        if (mod?.cushion) {
+          pts = Math.round(pts * 1.5)
+        }
 
         await awardPoints({
           userId,
@@ -389,6 +404,17 @@ export async function revealCycle(cycleId: number) {
           type: PointType.PARTICIPATION,
           description: `Week ${cycle.weekNumber} — participation`,
         }, tx)
+
+        // Gamble — −20 penalty when you bet and miss the podium
+        if (mod?.gamble) {
+          await awardPoints({
+            userId,
+            cycleId,
+            amount: -20,
+            type: PointType.CHIP_PENALTY,
+            description: `Week ${cycle.weekNumber} — Gamble lost`,
+          }, tx)
+        }
       }
 
       // ── 4. Streak bonuses + streak counter updates ───────────────────────────
