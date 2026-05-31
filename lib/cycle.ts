@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma'
 import { CycleStatus, PointType, ConditionType, ChipEffect, ActivationStatus, Prisma } from '@prisma/client'
 import { resolveChips } from '@/lib/chips'
 import { resolveSongDisruptions } from '@/lib/songchips'
-import { notifyRevealResults, notifyAllActive } from '@/lib/notify'
+import { notifyRevealResults, notifyAllActive, notifyGmAssigned } from '@/lib/notify'
 
 // Accepts either the base client or an interactive-transaction client
 type Db = Prisma.TransactionClient | typeof prisma
@@ -711,11 +711,13 @@ export async function applyMetaChipsToNewCycle(prevCycleId: number, newCycleId: 
     orderBy: { activatedAt: 'desc' },
   })
   if (crown?.targetUserId) {
-    await prisma.weekCycle.update({
+    const nc = await prisma.weekCycle.update({
       where: { id: newCycleId },
       data: { gmUserId: crown.targetUserId },
+      select: { weekNumber: true, theme: true },
     })
     console.log(`[meta] Crown: user ${crown.targetUserId} set as GM of cycle ${newCycleId}`)
+    await notifyGmAssigned(crown.targetUserId, nc.weekNumber, nc.theme)
   }
 
   // Decree — the chosen theme carries to the new cycle

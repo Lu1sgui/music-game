@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { CycleStatus } from '@prisma/client'
 import { getAuth, ok, err } from '@/lib/api'
+import { notifyGmAssigned } from '@/lib/notify'
 
 export async function PATCH(request: NextRequest) {
   try {
@@ -36,6 +37,8 @@ export async function PATCH(request: NextRequest) {
       data: { gmUserId: userId },
       include: { gm: { select: { id: true, username: true } } },
     })
+
+    await notifyGmAssigned(userId, cycle.weekNumber, cycle.theme)
 
     return ok({ cycle: updated, message: `${user.username} assigned as GM for week ${cycle.weekNumber}` })
   } catch (err: any) {
