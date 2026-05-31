@@ -14,7 +14,8 @@ export async function GET(request: NextRequest) {
         id: true, username: true, email: true, role: true,
         totalPoints: true, streakWeeks: true,
         avatarSeed: true, avatarStyle: true,
-        mustChangePassword: true,   // ← these were missing
+        mustChangePassword: true,
+        emailOptIn: true,
         createdAt: true,
         userChips: { where: { quantity: { gt: 0 } }, include: { chip: true } },
         userAchievements: { include: { achievement: true }, orderBy: { earnedAt: 'desc' } },

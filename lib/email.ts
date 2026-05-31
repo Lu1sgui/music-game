@@ -77,6 +77,67 @@ export function passwordResetEmail(username: string, resetUrl: string): string {
   `.trim()
 }
 
+// Shared shell so all game emails look consistent
+function emailShell(inner: string): string {
+  return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0; padding:0; background:#0E1228; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+  <div style="max-width: 560px; margin: 40px auto; padding: 32px; background: #1A1E3A; border-radius: 8px; color: #E0E3F0;">
+    <h1 style="color: #FF2D87; font-size: 24px; margin: 0 0 24px;">⚡ Weekly Beats</h1>
+    ${inner}
+    <hr style="border: none; border-top: 1px solid #2A2F50; margin: 32px 0;">
+    <p style="font-size: 12px; color: #666; line-height: 1.5;">
+      You're receiving this because you opted in to Weekly Beats emails.
+      You can turn these off anytime from your profile.
+    </p>
+  </div>
+</body>
+</html>`.trim()
+}
+
+// Personalized weekly results email (sent at the Monday reveal)
+export function resultsEmail(
+  username: string,
+  weekNumber: number,
+  place: number | null,
+  points: number,
+  theme?: string | null
+): string {
+  const medal = place === 1 ? '🥇 1st place' : place === 2 ? '🥈 2nd place' : place === 3 ? '🥉 3rd place' : null
+  const headline = medal
+    ? `You finished <strong style="color:#FFD700;">${medal}</strong>!`
+    : `Here's how your week went.`
+  return emailShell(`
+    <h2 style="font-size: 20px; margin: 0 0 16px;">Week ${weekNumber} results are in</h2>
+    <p style="line-height: 1.6; margin: 0 0 16px; color: #B0B5CC;">
+      Hi <strong>@${username}</strong>, ${headline}
+    </p>
+    ${theme ? `<p style="color:#888; margin:0 0 16px;">Theme: <em>${theme}</em></p>` : ''}
+    <div style="background:#0E1228; border:2px solid #00E5FF; border-radius:4px; padding:16px; text-align:center; margin:24px 0;">
+      <span style="font-size:14px; color:#888;">Points this week</span><br>
+      <span style="font-family:'Courier New',monospace; font-size:28px; color:#00E5FF;">${points >= 0 ? '+' : ''}${points}</span>
+    </div>
+    <p style="text-align:center; margin:24px 0;">
+      <a href="${process.env.NEXT_PUBLIC_APP_URL ?? 'https://devinsmusic.reviews'}"
+         style="display:inline-block; padding:12px 28px; background:#FF2D87; color:#fff; text-decoration:none; border-radius:4px; font-weight:700;">
+        SEE THE LADDER
+      </a>
+    </p>
+  `)
+}
+
+// Admin broadcast — a free-form message to all players
+export function broadcastEmail(username: string, subject: string, body: string): string {
+  return emailShell(`
+    <h2 style="font-size: 20px; margin: 0 0 16px;">${subject}</h2>
+    <p style="line-height: 1.7; margin: 0 0 16px; color: #D0D4E8; white-space: pre-wrap;">Hi @${username},
+
+${body}</p>
+  `)
+}
+
 export function tempPasswordEmail(username: string, tempPassword: string): string {
   return `
 <!DOCTYPE html>
