@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { CycleStatus } from '@prisma/client'
 import { getTokenPayload } from '@/lib/auth'
-import { openCycle, closeCycle, revealCycle, archiveCycle, createCycle, buildCycleSchedule, forceReset, getCurrentCycle } from '@/lib/cycle'
+import { openCycle, closeCycle, revealCycle, archiveCycle, createCycle, buildCycleSchedule, forceReset, getCurrentCycle, advanceWeek } from '@/lib/cycle'
 
 export async function POST(request: NextRequest) {
   try {
@@ -50,6 +50,15 @@ export async function POST(request: NextRequest) {
           await prisma.weekCycle.update({ where: { id: nc.id }, data: { gmUserId: gm.id } })
         }
         return NextResponse.json({ message: `New cycle ${nc.id} created (PENDING)${gm ? ` with @${gm.username} as GM` : ''}`, cycle: nc })
+      }
+      case 'advance': {
+        // Full weekly advance: reveal the CLOSED cycle → archive → create next.
+        // Use this after a late GM scoring when the auto-reveal was held.
+        const r = await advanceWeek({ requireGmResults: false })
+        if (!r.revealed) {
+          return NextResponse.json({ error: r.reason === 'no_closed_cycle' ? 'No CLOSED cycle to advance' : 'Cannot advance' }, { status: 422 })
+        }
+        return NextResponse.json({ message: `Week advanced — cycle ${r.closedId} revealed, new cycle ${r.newCycleId} created` })
       }
       case 'reset': {
         const nc = await forceReset()

@@ -13,16 +13,11 @@ import { CycleStatus, Role } from '@prisma/client'
 import {
   openCycle,
   closeCycle,
-  revealCycle,
-  archiveCycle,
-  createCycle,
-  buildCycleSchedule,
-  applyMetaChipsToNewCycle,
+  advanceWeek,
 } from '@/lib/cycle'
 import {
   notifyAllActive,
   notifyManyUsers,
-  notifyRevealResults,
   notifySubmissionReminder,
 } from '@/lib/notify'
 
@@ -36,51 +31,29 @@ export function initCron() {
   initialized = true
 
   // ── Monday 00:00 COT (05:00 UTC) ─────────────────────────────────────────
-  // 1. Reveal previous cycle (award points, resolve chips)
-  // 2. Archive it
-  // 3. Create new cycle as PENDING (theme visible, submissions not open yet)
+  // Reveal previous cycle → archive → create new cycle (PENDING).
+  // BUT: if the GM hasn't scored, the auto-reveal does NOT fire — it waits and
+  // notifies the admins, who reveal manually from the panel ("Advance week").
   cron.schedule(process.env.CYCLE_REVEAL_CRON ?? '0 5 * * 1', async () => {
-    console.log('[cron] Monday: revealing + archiving + creating new cycle')
+    console.log('[cron] Monday: advancing the week')
     try {
-      // Reveal the closed cycle (GM scored during Sat + Sun)
-      const closed = await prisma.weekCycle.findFirst({
-        where: { status: CycleStatus.CLOSED },
-        orderBy: { createdAt: 'desc' },
-      })
+      const result = await advanceWeek({ requireGmResults: true })
 
-      if (closed) {
-        const resultCount = await prisma.cycleResult.count({ where: { cycleId: closed.id } })
-        if (resultCount === 0) {
-          console.warn(`[cron] Cycle ${closed.id} has no GM results — revealing with participation only`)
-        }
-        await revealCycle(closed.id)
-        console.log(`[cron] Cycle ${closed.id} REVEALED`)
-
-        // Notify players of their results (in-app + opt-in results email)
-        await notifyRevealResults(closed.id)
-        console.log(`[cron] Cycle ${closed.id} result notifications sent`)
-
-        await archiveCycle(closed.id)
-        console.log(`[cron] Cycle ${closed.id} ARCHIVED`)
+      if (result.revealed) {
+        console.log(`[cron] Cycle ${result.closedId} revealed + archived; new cycle ${result.newCycleId} created`)
+      } else if (result.reason === 'gm_not_scored') {
+        console.warn(`[cron] Cycle ${result.closedId} has NO GM results — auto-reveal skipped, waiting for manual reveal`)
+        const admins = await prisma.user.findMany({
+          where: { isActive: true, role: { in: [Role.ADMIN, Role.GM] } },
+          select: { id: true },
+        })
+        await notifyManyUsers(
+          admins.map((u) => u.id),
+          "⚠️ This week wasn't scored — the auto-reveal was held. Score the songs, then Advance the week from the admin panel."
+        )
       } else {
-        console.warn('[cron] No CLOSED cycle found to reveal')
+        console.warn('[cron] No CLOSED cycle to reveal — nothing to do')
       }
-
-      // Create new cycle starting this Monday (submissions open Tuesday)
-      const now = new Date()
-      const schedule = buildCycleSchedule(now)
-      const newCycle = await createCycle(schedule)
-      console.log(`[cron] New cycle ${newCycle.id} created (PENDING) — week ${newCycle.weekNumber}`)
-      console.log(`[cron] Submissions open: ${schedule.opensAt.toISOString()}`)
-      console.log(`[cron] Submissions close: ${schedule.closesAt.toISOString()}`)
-
-      // Apply meta chips from the revealed cycle (Crown → next GM)
-      if (closed) await applyMetaChipsToNewCycle(closed.id, newCycle.id)
-
-      // Announce the new week (in-app only — conservative email scope)
-      await notifyAllActive(
-        `🎵 A new week has begun! Submissions open Tuesday at 00:00. Get your song ready.`
-      )
     } catch (err) {
       console.error('[cron] Monday trigger failed:', err)
     }

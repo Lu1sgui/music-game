@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma'
 import { CycleStatus, PointType, ConditionType, ChipEffect, ActivationStatus, Prisma } from '@prisma/client'
 import { resolveChips } from '@/lib/chips'
 import { resolveSongDisruptions } from '@/lib/songchips'
+import { notifyRevealResults, notifyAllActive } from '@/lib/notify'
 
 // Accepts either the base client or an interactive-transaction client
 type Db = Prisma.TransactionClient | typeof prisma
@@ -743,6 +744,43 @@ export async function applyMetaChipsToNewCycle(prevCycleId: number, newCycleId: 
     await prisma.weekCycle.update({ where: { id: newCycleId }, data: { doubleHeader: true } })
     console.log(`[meta] Double Header: cycle ${newCycleId} will crown two winners`)
   }
+}
+
+// ─── Weekly advance (reveal → archive → new cycle) ───────────────────────────
+// Shared by the Monday cron and the admin "advance" action.
+// requireGmResults=true: if the GM hasn't scored, do NOTHING and wait (the auto
+// reveal must not fire). The admin can then advance manually (requireGmResults=false).
+export async function advanceWeek(
+  { requireGmResults }: { requireGmResults: boolean }
+): Promise<{ revealed: boolean; reason?: 'no_closed_cycle' | 'gm_not_scored'; closedId?: number; newCycleId?: number }> {
+  const closed = await prisma.weekCycle.findFirst({
+    where: { status: CycleStatus.CLOSED },
+    orderBy: { createdAt: 'desc' },
+  })
+  if (!closed) return { revealed: false, reason: 'no_closed_cycle' }
+
+  const resultCount = await prisma.cycleResult.count({ where: { cycleId: closed.id } })
+  if (requireGmResults && resultCount === 0) {
+    return { revealed: false, reason: 'gm_not_scored', closedId: closed.id }
+  }
+
+  await revealCycle(closed.id)
+  await notifyRevealResults(closed.id)
+  await archiveCycle(closed.id)
+
+  const schedule = buildCycleSchedule(new Date())
+  const newCycle = await createCycle(schedule)
+  await applyMetaChipsToNewCycle(closed.id, newCycle.id)
+
+  // Auto-assign the first GM-role user if a Crown didn't already set one
+  const fresh = await prisma.weekCycle.findUniqueOrThrow({ where: { id: newCycle.id }, select: { gmUserId: true } })
+  if (!fresh.gmUserId) {
+    const gm = await prisma.user.findFirst({ where: { role: 'GM' } })
+    if (gm) await prisma.weekCycle.update({ where: { id: newCycle.id }, data: { gmUserId: gm.id } })
+  }
+
+  await notifyAllActive('🎵 A new week has begun! Submissions open Tuesday at 00:00. Get your song ready.')
+  return { revealed: true, closedId: closed.id, newCycleId: newCycle.id }
 }
 
 // ─── Admin force reset ────────────────────────────────────────────────────────
