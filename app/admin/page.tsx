@@ -177,6 +177,12 @@ export default function AdminPage() {
           {cycleStatus === 'ARCHIVED' && (
             <button className="btn btn-cyan" onClick={() => cycleAction('new')}>Create New Cycle (PENDING)</button>
           )}
+          {/* One-click weekly advance — use after a late GM scoring */}
+          {cycleStatus === 'CLOSED' && (
+            <button className="btn btn-green" onClick={() => { if (confirm('Advance the week: reveal results + archive + create next cycle. Continue?')) cycleAction('advance') }}>
+              ▸ Advance Week (reveal + new cycle)
+            </button>
+          )}
           {/* Force reset always available */}
           <button className="btn btn-red btn-sm" style={{ width:'auto' }}
             onClick={() => { if (confirm('Force reset: archive current + open new. Continue?')) cycleAction('reset') }}>
