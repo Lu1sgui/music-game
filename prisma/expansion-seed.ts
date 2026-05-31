@@ -7,9 +7,20 @@
 // `enabled: false` means the chip is in the catalog but not yet playable — its
 // effect lands in a later step, then we flip it to true here and re-run.
 
-import { PrismaClient, ChipEffect, ChipRarity, ChipPhase } from '@prisma/client'
+import { PrismaClient, ChipEffect, ChipRarity, ChipPhase, BadgeTier, ConditionType } from '@prisma/client'
 
 const prisma = new PrismaClient()
+
+// New achievements that reward expansion chips. They use EXISTING condition types,
+// so the achievement checker handles them with no code change.
+const ACHIEVEMENTS = [
+  { slug: 'aggressor',   name: 'Aggressor',   description: 'Reach the podium 3 times.',  badgeTier: BadgeTier.SILVER, conditionType: ConditionType.PODIUM_COUNT,     conditionValue: 3,  pointsBonus: 30, rewardChipSlug: 'toxic' },
+  { slug: 'high-roller', name: 'High Roller', description: 'Win 1st place twice.',       badgeTier: BadgeTier.GOLD,   conditionType: ConditionType.TOP_1_COUNT,      conditionValue: 2,  pointsBonus: 50, rewardChipSlug: 'gamble' },
+  { slug: 'survivor',    name: 'Survivor',    description: 'Keep a 6-week streak.',      badgeTier: BadgeTier.SILVER, conditionType: ConditionType.STREAK_WEEKS,     conditionValue: 6,  pointsBonus: 40, rewardChipSlug: 'protect' },
+  { slug: 'collector',   name: 'Collector',   description: 'Submit 15 songs.',           badgeTier: BadgeTier.SILVER, conditionType: ConditionType.SUBMISSION_COUNT, conditionValue: 15, pointsBonus: 35, rewardChipSlug: 'cleanse' },
+  { slug: 'saboteur',    name: 'Saboteur',    description: 'Reach the podium 8 times.',  badgeTier: BadgeTier.GOLD,   conditionType: ConditionType.PODIUM_COUNT,     conditionValue: 8,  pointsBonus: 70, rewardChipSlug: 'switcheroo' },
+  { slug: 'kingmaker',   name: 'Kingmaker',   description: 'Serve as Game Master twice.',badgeTier: BadgeTier.GOLD,   conditionType: ConditionType.GM_COUNT,         conditionValue: 2,  pointsBonus: 60, rewardChipSlug: 'crown' },
+]
 
 type ChipSeed = {
   slug: string
@@ -61,7 +72,7 @@ const CHIPS: ChipSeed[] = [
   { slug: 'crown',         name: 'Crown',         description: 'You choose the Game Master for the next cycle.',                       effectType: ChipEffect.CROWN,         rarity: ChipRarity.GOLDEN, requiresTarget: true,  phase: ChipPhase.OPEN_ONLY, offensive: false, enabled: true },
   { slug: 'decree',        name: 'Decree',        description: "You set next week's theme.",                                           effectType: ChipEffect.DECREE,        rarity: ChipRarity.GOLDEN, requiresTarget: false, phase: ChipPhase.OPEN_ONLY, offensive: false, enabled: true },
   { slug: 'amnesty',       name: 'Amnesty',       description: 'Cancels ALL chips in play this cycle, including your own.',             effectType: ChipEffect.AMNESTY,       rarity: ChipRarity.GOLDEN, requiresTarget: false, phase: ChipPhase.ANYTIME,   offensive: false, enabled: true },
-  { slug: 'extra-time',    name: 'Extra Time',    description: 'Extends the submission window by 24 hours for everyone.',               effectType: ChipEffect.EXTRA_TIME,    rarity: ChipRarity.GOLDEN, requiresTarget: false, phase: ChipPhase.OPEN_ONLY, offensive: false, enabled: false },
+  { slug: 'extra-time',    name: 'Extra Time',    description: 'Extends the submission window by 24 hours for everyone.',               effectType: ChipEffect.EXTRA_TIME,    rarity: ChipRarity.GOLDEN, requiresTarget: false, phase: ChipPhase.OPEN_ONLY, offensive: false, enabled: true },
   { slug: 'double-header', name: 'Double Header', description: 'The next cycle crowns two winners (two 1st places).',                  effectType: ChipEffect.DOUBLE_HEADER, rarity: ChipRarity.GOLDEN, requiresTarget: false, phase: ChipPhase.OPEN_ONLY, offensive: false, enabled: true },
 ]
 
@@ -81,6 +92,14 @@ async function main() {
     existing ? updated++ : created++
   }
   console.log(`[expansion-seed] ${CHIPS.length} chips processed — ${created} created, ${updated} updated`)
+
+  let achCreated = 0
+  for (const a of ACHIEVEMENTS) {
+    const existing = await prisma.achievement.findUnique({ where: { slug: a.slug } })
+    await prisma.achievement.upsert({ where: { slug: a.slug }, update: a, create: a })
+    if (!existing) achCreated++
+  }
+  console.log(`[expansion-seed] ${ACHIEVEMENTS.length} achievements processed — ${achCreated} created`)
 }
 
 main()

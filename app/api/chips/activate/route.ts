@@ -238,6 +238,7 @@ export async function POST(request: NextRequest) {
               ChipEffect.FORESIGHT,
               ChipEffect.INSIGHT,
               ChipEffect.DONATION,
+              ChipEffect.EXTRA_TIME,
             ] as ChipEffect[]
           ).includes(chip.effectType)
             ? ActivationStatus.RESOLVED
@@ -265,6 +266,14 @@ export async function POST(request: NextRequest) {
       }
       return act
     })
+
+    // EXTRA_TIME: push the submission deadline 24h for everyone (applied now)
+    if (chip.effectType === ChipEffect.EXTRA_TIME) {
+      await prisma.weekCycle.update({
+        where: { id: cycle.id },
+        data: { closesAt: new Date(new Date(cycle.closesAt).getTime() + 24 * 60 * 60 * 1000) },
+      })
+    }
 
     return ok({
       message: `${chip.name} activated`,
