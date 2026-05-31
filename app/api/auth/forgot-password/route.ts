@@ -3,14 +3,29 @@ import { NextRequest, NextResponse } from 'next/server'
 import { randomBytes, createHash } from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { sendEmail, passwordResetEmail } from '@/lib/email'
+import { rateLimit, clientIp } from '@/lib/ratelimit'
 
 export async function POST(request: NextRequest) {
   try {
     const { email } = await request.json()
     if (!email) return NextResponse.json({ error: 'Email required' }, { status: 400 })
 
+    const normalizedEmail = String(email).toLowerCase().trim()
+
+    // Throttle reset-email flooding: 3 / hour per email, 10 / hour per IP
+    const byEmail = rateLimit(`forgot:${normalizedEmail}`, 3, 60 * 60 * 1000)
+    const byIp = rateLimit(`forgot-ip:${clientIp(request)}`, 10, 60 * 60 * 1000)
+    if (!byEmail.ok || !byIp.ok) {
+      // Still return the generic success message so we don't leak rate-limit state
+      return NextResponse.json({
+        message: 'If an account exists with that email, a password reset link has been sent.',
+      })
+    }
+
     // Always return success — don't reveal whether email exists
-    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } })
+    const user = await prisma.user.findFirst({
+      where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
+    })
 
     if (user) {
       // Invalidate any old unused tokens for this user

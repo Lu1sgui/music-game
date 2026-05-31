@@ -30,18 +30,18 @@ export async function POST(request: NextRequest) {
 
     if (!cycle) return err('No cycle is currently open for submissions', 422)
 
-    // Check if user already submitted this cycle
-    const existing = await prisma.submission.findUnique({
-      where: { userId_cycleId: { userId: payload.userId, cycleId: cycle.id } },
+    // How many songs has the user already submitted this cycle?
+    const existingCount = await prisma.submission.count({
+      where: { userId: payload.userId, cycleId: cycle.id },
     })
 
-    if (existing) {
-      // Double Team chip allows a second submission
+    if (existingCount > 0) {
+      // Double Team chip allows a second submission (slot 2)
       const doubleTeam = await prisma.chipActivation.findFirst({
         where: {
           userId: payload.userId,
           cycleId: cycle.id,
-          status: ActivationStatus.RESOLVED,
+          status: { in: [ActivationStatus.PENDING, ActivationStatus.RESOLVED] },
           chip: { effectType: ChipEffect.DOUBLE_TEAM },
         },
       })
@@ -49,12 +49,7 @@ export async function POST(request: NextRequest) {
       if (!doubleTeam) {
         return err('You have already submitted a song this week', 409)
       }
-
-      // Count their submissions — Double Team allows max 2
-      const submissionCount = await prisma.submission.count({
-        where: { userId: payload.userId, cycleId: cycle.id },
-      })
-      if (submissionCount >= 2) {
+      if (existingCount >= 2) {
         return err('Double Team allows a maximum of 2 submissions', 409)
       }
     }
@@ -68,6 +63,7 @@ export async function POST(request: NextRequest) {
         platform: platformInfo.platform,
         url,
         platformTrackId: platformInfo.platformTrackId,
+        slot: existingCount + 1, // 1 for first song, 2 for the Double Team second song
       },
     })
 
