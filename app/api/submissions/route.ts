@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { CycleStatus, ChipEffect, ActivationStatus } from '@prisma/client'
 import { getAuth, ok, err, extractPlatformInfo } from '@/lib/api'
+import { isBlackedOut } from '@/lib/chips'
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,6 +30,11 @@ export async function POST(request: NextRequest) {
     })
 
     if (!cycle) return err('No cycle is currently open for submissions', 422)
+
+    // Blackout — a rival blocked your submission this week
+    if (await isBlackedOut(payload.userId, cycle.id)) {
+      return err('You were Blacked-out this week and cannot submit a song', 403)
+    }
 
     // How many songs has the user already submitted this cycle?
     const existingCount = await prisma.submission.count({

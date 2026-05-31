@@ -36,6 +36,8 @@ export default function ProfilePage() {
   const [newSeed, setNewSeed]   = useState('')
   const [newStyle, setNewStyle] = useState('miniavs')
   const [saving, setSaving]     = useState(false)
+  const [emailOptIn, setEmailOptIn] = useState(true)
+  const [savingEmail, setSavingEmail] = useState(false)
 
   useEffect(() => {
     if (!user) { router.push('/login'); return }
@@ -48,10 +50,23 @@ export default function ProfilePage() {
       setMe(me)
       setNewSeed(me.avatarSeed ?? user.username)
       setNewStyle(me.avatarStyle ?? 'miniavs')
+      setEmailOptIn(me.emailOptIn ?? true)
       setRank(l.ladder?.find((p: any) => p.username === user.username)?.rank ?? null)
       setLoading(false)
     })
   }, [user])
+
+  const toggleEmail = async () => {
+    const next = !emailOptIn
+    setEmailOptIn(next)
+    setSavingEmail(true)
+    await fetch('/api/auth/email-prefs', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ emailOptIn: next }),
+    }).catch(() => setEmailOptIn(!next)) // revert on failure
+    setSavingEmail(false)
+  }
 
   const saveAvatar = async () => {
     setSaving(true)
@@ -143,11 +158,30 @@ export default function ProfilePage() {
         </div>
       </div>
 
+      {/* Email preferences */}
+      <div className="card" style={{ padding:'0.875rem 1rem', marginBottom:'1rem', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <div>
+          <div className="font-ui" style={{ fontSize:'0.9rem' }}>📧 Email me game updates</div>
+          <div style={{ fontSize:'0.72rem', color:'var(--muted)', marginTop:2 }}>Weekly results & announcements (password emails always send)</div>
+        </div>
+        <button onClick={toggleEmail} disabled={savingEmail} aria-label="Toggle game emails"
+          style={{ position:'relative', width:46, height:26, borderRadius:13, border:'none', cursor:'pointer',
+                   background: emailOptIn ? 'var(--green)' : 'var(--border)', transition:'background .15s', flexShrink:0 }}>
+          <span style={{ position:'absolute', top:3, left: emailOptIn ? 23 : 3, width:20, height:20, borderRadius:'50%',
+                         background:'#fff', transition:'left .15s' }} />
+        </button>
+      </div>
+
       {/* Chips with description tooltip */}
       <div style={{ marginBottom:'1rem' }}>
         <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:'0.5rem' }}>
           <span className="font-pixel txt-yellow" style={{ fontSize:9 }}>⚡ CHIPS</span>
-          <span style={{ fontSize:'0.72rem', color:'var(--muted)', marginLeft:'auto' }}>
+          <button onClick={() => router.push('/chips')}
+            style={{ marginLeft:'auto', background:'none', border:'1px solid var(--yellow)', color:'var(--yellow)',
+                     borderRadius:4, padding:'3px 10px', cursor:'pointer', fontFamily:'var(--font-ui)', fontWeight:700, fontSize:'0.72rem' }}>
+            PLAY ▸
+          </button>
+          <span style={{ fontSize:'0.72rem', color:'var(--muted)' }}>
             {chips.reduce((s: number, c: any) => s + c.quantity, 0)} / 5
           </span>
         </div>

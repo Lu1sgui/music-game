@@ -7,9 +7,17 @@ import { Zap, RotateCcw, UserCheck, RefreshCw } from 'lucide-react'
 import { useAuth, useApi } from '../context/AuthContext'
 
 const CHIP_SLUGS = [
+  // Original
   'flash','smokescreen','substitute','recover','swift','haze','night-shade',
   'swords-dance','double-team','disable','reflect','mimic','confuse-ray','leech-seed',
   'mega-drain','screech','metronome','spore','bide','skull-bash',
+  // Expansion (enabled)
+  'cushion','spotlight','insight','gamble','foresight','amnesty',
+  'toxic','payday','protect','bounty','cleanse','mirror-coat',
+  'usurp','earthquake','time-bomb','curse',
+  'veto','insurance','pickpocket','blackout','crown',
+  'wildcard','donation','decree',
+  'switcheroo','copycat','mute','banker','double-header','extra-time',
 ]
 
 const CYCLE_ACTIONS: Record<string, { label: string; next: string; color: string }> = {
@@ -34,6 +42,9 @@ export default function AdminPage() {
   const [chipSlug, setChipSlug]     = useState('')
   const [msg, setMsg]       = useState('')
   const [loading, setLoading] = useState(true)
+  const [broadcastMsg, setBroadcastMsg] = useState('')
+  const [broadcastEmail, setBroadcastEmail] = useState(false)
+  const [sendingBroadcast, setSendingBroadcast] = useState(false)
 
   const loadData = () => {
     Promise.all([
@@ -54,6 +65,18 @@ export default function AdminPage() {
   }, [user])
 
   const flash = (msg: string) => { setMsg(msg); setTimeout(() => setMsg(''), 5000) }
+
+  const sendBroadcast = async () => {
+    if (!broadcastMsg.trim()) return
+    setSendingBroadcast(true)
+    const res = await api.post('/api/admin/broadcast', { message: broadcastMsg.trim(), email: broadcastEmail })
+    setSendingBroadcast(false)
+    if (res.error) { flash(res.error) }
+    else {
+      flash(`✓ Broadcast sent${broadcastEmail ? ` (${res.emailed} emails)` : ''}`)
+      setBroadcastMsg('')
+    }
+  }
 
   const assignGM = async () => {
     if (!gmUserId) return
@@ -256,6 +279,23 @@ export default function AdminPage() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* ── Broadcast to all players ─────────────────────────── */}
+      <div className="card corners" style={{ padding:'1.25rem', marginTop:'1rem' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:'0.75rem' }}>
+          <span className="font-ui" style={{ color:'var(--cyan)' }}>📢 BROADCAST</span>
+        </div>
+        <textarea className="input" rows={3} placeholder="Message to all active players..."
+          value={broadcastMsg} onChange={e => setBroadcastMsg(e.target.value)}
+          style={{ resize:'none', marginBottom:'0.75rem' }} />
+        <label style={{ display:'flex', alignItems:'center', gap:8, marginBottom:'0.75rem', fontSize:'0.82rem', color:'var(--muted)', cursor:'pointer' }}>
+          <input type="checkbox" checked={broadcastEmail} onChange={e => setBroadcastEmail(e.target.checked)} />
+          Also send as email (to opted-in players only)
+        </label>
+        <button className="btn btn-cyan btn-sm" style={{ width:'auto' }} onClick={sendBroadcast} disabled={sendingBroadcast || !broadcastMsg.trim()}>
+          {sendingBroadcast ? 'SENDING...' : 'SEND BROADCAST'}
+        </button>
       </div>
     </div>
   )

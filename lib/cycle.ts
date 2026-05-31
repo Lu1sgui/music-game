@@ -5,6 +5,7 @@
 import { prisma } from '@/lib/prisma'
 import { CycleStatus, PointType, ConditionType, ChipEffect, ActivationStatus, Prisma } from '@prisma/client'
 import { resolveChips } from '@/lib/chips'
+import { resolveSongDisruptions } from '@/lib/songchips'
 
 // Accepts either the base client or an interactive-transaction client
 type Db = Prisma.TransactionClient | typeof prisma
@@ -133,6 +134,8 @@ export async function closeCycle(cycleId: number) {
   if (cycle.status !== CycleStatus.OPEN) {
     throw new Error(`Cannot close cycle — current status is ${cycle.status}`)
   }
+  // Resolve song-disruption chips now so the GM scores the final (sabotaged) songs
+  await resolveSongDisruptions(cycleId)
   return prisma.weekCycle.update({
     where: { id: cycleId },
     data: { status: CycleStatus.CLOSED },
@@ -254,7 +257,7 @@ async function processParticipationDrop(userId: number, streakWeeks: number, db:
   const roll = Math.random()
   const rarity = roll < 0.6 ? 'COMMON' : roll < 0.9 ? 'RARE' : 'LEGENDARY'
 
-  const chips = await db.chip.findMany({ where: { rarity } })
+  const chips = await db.chip.findMany({ where: { rarity, enabled: true } })
   if (chips.length === 0) return
 
   const chip = chips[Math.floor(Math.random() * chips.length)]
@@ -317,16 +320,55 @@ export async function revealCycle(cycleId: number) {
       const modifiers = await resolveChips(cycle.chipActivations, cycleId, tx)
 
       // ── 2. Award podium points ────────────────────────────────────────────────
-      const basePoints: Record<number, number> = { 1: POINTS.FIRST, 2: POINTS.SECOND, 3: POINTS.THIRD }
+      // Double Header crowns two winners: 1st and 2nd both score FIRST, 3rd is bumped up.
+      const basePoints: Record<number, number> = cycle.doubleHeader
+        ? { 1: POINTS.FIRST, 2: POINTS.FIRST, 3: POINTS.SECOND }
+        : { 1: POINTS.FIRST, 2: POINTS.SECOND, 3: POINTS.THIRD }
       const pointTypes: Record<number, PointType> = {
         1: PointType.PODIUM_1ST,
         2: PointType.PODIUM_2ND,
         3: PointType.PODIUM_3RD,
       }
 
+      // Usurp — if both the caster and target made the podium, swap their positions
+      const positionOverride = new Map<number, number>()
+      for (const [aId, m] of Array.from(modifiers.entries())) {
+        if (!m.usurpTarget) continue
+        const aRes = cycle.cycleResults.find((r) => r.userId === aId)
+        const bRes = cycle.cycleResults.find((r) => r.userId === m.usurpTarget)
+        if (aRes && bRes) {
+          positionOverride.set(aId, bRes.position)
+          positionOverride.set(m.usurpTarget, aRes.position)
+        }
+      }
+
       for (const result of cycle.cycleResults) {
         const mod = modifiers.get(result.userId)
-        let position = result.position
+        let position = positionOverride.get(result.userId) ?? result.position
+
+        // Earthquake caster — forfeits the podium, gets participation instead
+        if (mod?.cannotPodium) {
+          await awardPoints({
+            userId: result.userId,
+            cycleId,
+            amount: POINTS.PARTICIPATION,
+            type: PointType.PARTICIPATION,
+            description: `Week ${cycle.weekNumber} — participation (Earthquake forfeit)`,
+          }, tx)
+          continue
+        }
+
+        // Veto — the target's song can't make the podium; participation only
+        if (mod?.vetoed) {
+          await awardPoints({
+            userId: result.userId,
+            cycleId,
+            amount: POINTS.PARTICIPATION,
+            type: PointType.PARTICIPATION,
+            description: `Week ${cycle.weekNumber} — participation (Vetoed)`,
+          }, tx)
+          continue
+        }
 
         // Screech — score one tier lower
         if (mod?.tieredDown) {
@@ -350,6 +392,16 @@ export async function revealCycle(cycleId: number) {
         // Swords Dance — multiply (Bide doubles the multiplier again)
         if (mod?.pointsMultiplier) {
           pts = Math.round(pts * mod.pointsMultiplier)
+        }
+
+        // Gamble — ×1.5 when you reach the podium
+        if (mod?.gamble) {
+          pts = Math.round(pts * 1.5)
+        }
+
+        // Spotlight — flat +15 bonus on the podium
+        if (mod?.spotlight) {
+          pts += 15
         }
 
         await awardPoints({
@@ -380,7 +432,12 @@ export async function revealCycle(cycleId: number) {
         }
 
         // Swift — double participation points
-        const pts = mod?.swiftDouble ? POINTS.PARTICIPATION * 2 : POINTS.PARTICIPATION
+        let pts = mod?.swiftDouble ? POINTS.PARTICIPATION * 2 : POINTS.PARTICIPATION
+
+        // Cushion — +50% participation when you DON'T reach the podium
+        if (mod?.cushion) {
+          pts = Math.round(pts * 1.5)
+        }
 
         await awardPoints({
           userId,
@@ -389,6 +446,17 @@ export async function revealCycle(cycleId: number) {
           type: PointType.PARTICIPATION,
           description: `Week ${cycle.weekNumber} — participation`,
         }, tx)
+
+        // Gamble — −20 penalty when you bet and miss the podium
+        if (mod?.gamble) {
+          await awardPoints({
+            userId,
+            cycleId,
+            amount: -20,
+            type: PointType.CHIP_PENALTY,
+            description: `Week ${cycle.weekNumber} — Gamble lost`,
+          }, tx)
+        }
       }
 
       // ── 4. Streak bonuses + streak counter updates ───────────────────────────
@@ -497,6 +565,122 @@ export async function revealCycle(cycleId: number) {
         })
       }
 
+      // Payday — steal 25 from the target if they reached the podium
+      for (const [userId, mod] of Array.from(modifiers.entries())) {
+        if (!mod.paydayTarget) continue
+        const targetPodium = await tx.cycleResult.findFirst({ where: { userId: mod.paydayTarget, cycleId } })
+        if (targetPodium) {
+          await awardPoints({ userId, cycleId, amount: 25, type: PointType.CHIP_BONUS, description: `Week ${cycle.weekNumber} — Payday` }, tx)
+          await awardPoints({ userId: mod.paydayTarget, cycleId, amount: -25, type: PointType.CHIP_PENALTY, description: `Week ${cycle.weekNumber} — Payday stolen` }, tx)
+        }
+      }
+
+      // Earthquake — every other submitter loses 15 points
+      for (const [casterId, mod] of Array.from(modifiers.entries())) {
+        if (!mod.earthquake) continue
+        for (const uid of submitterIds) {
+          if (uid === casterId) continue
+          await awardPoints({ userId: uid, cycleId, amount: -15, type: PointType.CHIP_PENALTY, description: `Week ${cycle.weekNumber} — Earthquake` }, tx)
+        }
+      }
+
+      // Toxic — the target loses 30% of the points they earned this week
+      for (const [userId, mod] of Array.from(modifiers.entries())) {
+        if (!mod.toxic) continue
+        const earned = await tx.pointsLedger.aggregate({
+          where: { userId, cycleId, amount: { gt: 0 } },
+          _sum: { amount: true },
+        })
+        const loss = Math.floor((earned._sum.amount ?? 0) * 0.3)
+        if (loss > 0) {
+          await awardPoints({ userId, cycleId, amount: -loss, type: PointType.CHIP_PENALTY, description: `Week ${cycle.weekNumber} — Toxic` }, tx)
+        }
+      }
+
+      // Bounty — split 20 points among everyone who outscored the bounty target
+      for (const [placerId, mod] of Array.from(modifiers.entries())) {
+        if (!mod.bountyTarget) continue
+        const sums = await tx.pointsLedger.groupBy({
+          by: ['userId'],
+          where: { cycleId, userId: { in: submitterIds } },
+          _sum: { amount: true },
+        })
+        const ptsByUser = new Map(sums.map((s) => [s.userId, s._sum.amount ?? 0]))
+        const targetPts = ptsByUser.get(mod.bountyTarget) ?? 0
+        const winners = submitterIds.filter((uid) => uid !== mod.bountyTarget && (ptsByUser.get(uid) ?? 0) > targetPts)
+        if (winners.length > 0) {
+          const share = Math.floor(20 / winners.length)
+          if (share > 0) {
+            for (const w of winners) {
+              await awardPoints({ userId: w, cycleId, amount: share, type: PointType.CHIP_BONUS, description: `Week ${cycle.weekNumber} — Bounty claimed` }, tx)
+            }
+          }
+        }
+      }
+
+      // Curse — the target loses their streak if they made the podium
+      for (const [userId, mod] of Array.from(modifiers.entries())) {
+        if (!mod.curse) continue
+        if (!podiumUserIds.has(userId)) continue
+        await tx.user.update({ where: { id: userId }, data: { streakWeeks: 0 } })
+      }
+
+      // Time Bomb — detonates two reveals after it was planted (−50 to the target)
+      const activeBombs = await tx.chipActivation.findMany({
+        where: {
+          status: ActivationStatus.RESOLVED,
+          chip: { effectType: ChipEffect.TIME_BOMB },
+          cycleId: { lt: cycleId },
+          effectData: { path: ['cyclesRemaining'], gt: 0 },
+        },
+      })
+      for (const bomb of activeBombs) {
+        const data = bomb.effectData as { cyclesRemaining: number; targetUserId: number } | null
+        if (!data || !data.targetUserId) continue
+        const remaining = data.cyclesRemaining - 1
+        if (remaining <= 0) {
+          await awardPoints({ userId: data.targetUserId, cycleId, amount: -50, type: PointType.CHIP_PENALTY, description: `Week ${cycle.weekNumber} — Time Bomb detonated` }, tx)
+        }
+        await tx.chipActivation.update({
+          where: { id: bomb.id },
+          data: { effectData: { ...data, cyclesRemaining: remaining } },
+        })
+      }
+
+      // Banker — bank this cycle's earnings (removed now), returned ×2 next cycle
+      const newBankers = await tx.chipActivation.findMany({
+        where: { cycleId, status: ActivationStatus.RESOLVED, chip: { effectType: ChipEffect.BANKER } },
+      })
+      for (const b of newBankers) {
+        if ((b.effectData as any)?.banked != null) continue // already processed
+        const earned = await tx.pointsLedger.aggregate({
+          where: { userId: b.userId, cycleId, amount: { gt: 0 } },
+          _sum: { amount: true },
+        })
+        const banked = earned._sum.amount ?? 0
+        if (banked > 0) {
+          await awardPoints({ userId: b.userId, cycleId, amount: -banked, type: PointType.CHIP_PENALTY, description: `Week ${cycle.weekNumber} — Banked` }, tx)
+        }
+        await tx.chipActivation.update({ where: { id: b.id }, data: { effectData: { banked, settled: false } } })
+      }
+      // Banker payout — settle bankers from a previous cycle (×2 if they participated)
+      const dueBankers = await tx.chipActivation.findMany({
+        where: {
+          status: ActivationStatus.RESOLVED,
+          chip: { effectType: ChipEffect.BANKER },
+          cycleId: { lt: cycleId },
+          effectData: { path: ['settled'], equals: false },
+        },
+      })
+      for (const b of dueBankers) {
+        const data = b.effectData as { banked?: number; settled?: boolean } | null
+        const banked = data?.banked ?? 0
+        if (banked > 0 && submitterIds.includes(b.userId)) {
+          await awardPoints({ userId: b.userId, cycleId, amount: banked * 2, type: PointType.CHIP_BONUS, description: `Week ${cycle.weekNumber} — Banker payout` }, tx)
+        }
+        await tx.chipActivation.update({ where: { id: b.id }, data: { effectData: { ...(data ?? {}), settled: true } } })
+      }
+
       // ── 6. Check achievements for all participants ────────────────────────────
       for (const userId of submitterIds) {
         await checkAndAwardAchievements(userId, cycleId, tx)
@@ -512,10 +696,60 @@ export async function revealCycle(cycleId: number) {
   )
 }
 
+// ─── Meta chips applied when the next cycle is created ───────────────────────
+// Crown: the chosen player becomes GM of the new cycle. (Decree/theme will hook
+// in here too once it ships.)
+export async function applyMetaChipsToNewCycle(prevCycleId: number, newCycleId: number) {
+  const crown = await prisma.chipActivation.findFirst({
+    where: {
+      cycleId: prevCycleId,
+      status: ActivationStatus.RESOLVED,
+      chip: { effectType: ChipEffect.CROWN },
+      targetUserId: { not: null },
+    },
+    orderBy: { activatedAt: 'desc' },
+  })
+  if (crown?.targetUserId) {
+    await prisma.weekCycle.update({
+      where: { id: newCycleId },
+      data: { gmUserId: crown.targetUserId },
+    })
+    console.log(`[meta] Crown: user ${crown.targetUserId} set as GM of cycle ${newCycleId}`)
+  }
+
+  // Decree — the chosen theme carries to the new cycle
+  const decree = await prisma.chipActivation.findFirst({
+    where: {
+      cycleId: prevCycleId,
+      status: ActivationStatus.RESOLVED,
+      chip: { effectType: ChipEffect.DECREE },
+    },
+    orderBy: { activatedAt: 'desc' },
+  })
+  const decreeData = decree?.effectData as { theme?: string; themeDescription?: string | null } | null
+  if (decreeData?.theme) {
+    await prisma.weekCycle.update({
+      where: { id: newCycleId },
+      data: { theme: decreeData.theme, themeDescription: decreeData.themeDescription ?? null },
+    })
+    console.log(`[meta] Decree: theme "${decreeData.theme}" set on cycle ${newCycleId}`)
+  }
+
+  // Double Header — the new cycle crowns two winners
+  const doubleHeader = await prisma.chipActivation.findFirst({
+    where: { cycleId: prevCycleId, status: ActivationStatus.RESOLVED, chip: { effectType: ChipEffect.DOUBLE_HEADER } },
+  })
+  if (doubleHeader) {
+    await prisma.weekCycle.update({ where: { id: newCycleId }, data: { doubleHeader: true } })
+    console.log(`[meta] Double Header: cycle ${newCycleId} will crown two winners`)
+  }
+}
+
 // ─── Admin force reset ────────────────────────────────────────────────────────
 
 export async function forceReset() {
   const current = await getCurrentCycle()
+  const prevCycleId = current?.id ?? null
 
   if (current) {
     let status = current.status
@@ -545,6 +779,7 @@ export async function forceReset() {
   // Create and open a new cycle starting now
   const schedule = buildCycleSchedule(new Date())
   const newCycle = await createCycle(schedule)
+  if (prevCycleId) await applyMetaChipsToNewCycle(prevCycleId, newCycle.id)
   await openCycle(newCycle.id)
   return newCycle
 }
