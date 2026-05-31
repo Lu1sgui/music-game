@@ -300,6 +300,12 @@ export async function resolveChips(
       case ChipEffect.INSURANCE:
         break
 
+      // BANKER / DOUBLE_HEADER: cross-cycle effects handled in revealCycle /
+      // applyMetaChipsToNewCycle. The RESOLVED row carries the state.
+      case ChipEffect.BANKER:
+      case ChipEffect.DOUBLE_HEADER:
+        break
+
       // ── Expansion: offensive chips (point math runs in revealCycle) ──────
       case ChipEffect.TOXIC:
         if (activation.targetUserId) mod(activation.targetUserId).toxic = true

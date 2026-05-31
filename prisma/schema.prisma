@@ -188,6 +188,7 @@ model WeekCycle {
   closesAt         DateTime    @map("closes_at")
   revealsAt        DateTime    @map("reveals_at") // Friday reveal
   archivedAt       DateTime?   @map("archived_at")
+  doubleHeader     Boolean     @default(false) @map("double_header") // Double Header chip: two 1st places
   createdAt        DateTime    @default(now()) @map("created_at")
 
   gm              User?            @relation("GM", fields: [gmUserId], references: [id])

@@ -320,7 +320,10 @@ export async function revealCycle(cycleId: number) {
       const modifiers = await resolveChips(cycle.chipActivations, cycleId, tx)
 
       // ── 2. Award podium points ────────────────────────────────────────────────
-      const basePoints: Record<number, number> = { 1: POINTS.FIRST, 2: POINTS.SECOND, 3: POINTS.THIRD }
+      // Double Header crowns two winners: 1st and 2nd both score FIRST, 3rd is bumped up.
+      const basePoints: Record<number, number> = cycle.doubleHeader
+        ? { 1: POINTS.FIRST, 2: POINTS.FIRST, 3: POINTS.SECOND }
+        : { 1: POINTS.FIRST, 2: POINTS.SECOND, 3: POINTS.THIRD }
       const pointTypes: Record<number, PointType> = {
         1: PointType.PODIUM_1ST,
         2: PointType.PODIUM_2ND,
@@ -644,6 +647,40 @@ export async function revealCycle(cycleId: number) {
         })
       }
 
+      // Banker — bank this cycle's earnings (removed now), returned ×2 next cycle
+      const newBankers = await tx.chipActivation.findMany({
+        where: { cycleId, status: ActivationStatus.RESOLVED, chip: { effectType: ChipEffect.BANKER } },
+      })
+      for (const b of newBankers) {
+        if ((b.effectData as any)?.banked != null) continue // already processed
+        const earned = await tx.pointsLedger.aggregate({
+          where: { userId: b.userId, cycleId, amount: { gt: 0 } },
+          _sum: { amount: true },
+        })
+        const banked = earned._sum.amount ?? 0
+        if (banked > 0) {
+          await awardPoints({ userId: b.userId, cycleId, amount: -banked, type: PointType.CHIP_PENALTY, description: `Week ${cycle.weekNumber} — Banked` }, tx)
+        }
+        await tx.chipActivation.update({ where: { id: b.id }, data: { effectData: { banked, settled: false } } })
+      }
+      // Banker payout — settle bankers from a previous cycle (×2 if they participated)
+      const dueBankers = await tx.chipActivation.findMany({
+        where: {
+          status: ActivationStatus.RESOLVED,
+          chip: { effectType: ChipEffect.BANKER },
+          cycleId: { lt: cycleId },
+          effectData: { path: ['settled'], equals: false },
+        },
+      })
+      for (const b of dueBankers) {
+        const data = b.effectData as { banked?: number; settled?: boolean } | null
+        const banked = data?.banked ?? 0
+        if (banked > 0 && submitterIds.includes(b.userId)) {
+          await awardPoints({ userId: b.userId, cycleId, amount: banked * 2, type: PointType.CHIP_BONUS, description: `Week ${cycle.weekNumber} — Banker payout` }, tx)
+        }
+        await tx.chipActivation.update({ where: { id: b.id }, data: { effectData: { ...(data ?? {}), settled: true } } })
+      }
+
       // ── 6. Check achievements for all participants ────────────────────────────
       for (const userId of submitterIds) {
         await checkAndAwardAchievements(userId, cycleId, tx)
@@ -696,6 +733,15 @@ export async function applyMetaChipsToNewCycle(prevCycleId: number, newCycleId: 
       data: { theme: decreeData.theme, themeDescription: decreeData.themeDescription ?? null },
     })
     console.log(`[meta] Decree: theme "${decreeData.theme}" set on cycle ${newCycleId}`)
+  }
+
+  // Double Header — the new cycle crowns two winners
+  const doubleHeader = await prisma.chipActivation.findFirst({
+    where: { cycleId: prevCycleId, status: ActivationStatus.RESOLVED, chip: { effectType: ChipEffect.DOUBLE_HEADER } },
+  })
+  if (doubleHeader) {
+    await prisma.weekCycle.update({ where: { id: newCycleId }, data: { doubleHeader: true } })
+    console.log(`[meta] Double Header: cycle ${newCycleId} will crown two winners`)
   }
 }
 
