@@ -164,13 +164,14 @@ model Submission {
   platform        Platform
   url             String
   platformTrackId String?  @map("platform_track_id") @db.VarChar(100) // Spotify/YouTube track ID for future embed
+  slot            Int      @default(1) // 1 normally; Double Team unlocks slot 2 for a second song
   submittedAt     DateTime @default(now()) @map("submitted_at")
 
   user        User         @relation(fields: [userId], references: [id])
   cycle       WeekCycle    @relation(fields: [cycleId], references: [id])
   cycleResult CycleResult? // null until GM scores this submission
 
-  @@unique([userId, cycleId]) // one song per user per week — enforced at DB level
+  @@unique([userId, cycleId, slot]) // one song per user per week per slot (Double Team unlocks slot 2)
   @@map("submissions")
 }
 
@@ -296,6 +297,7 @@ model ChipActivation {
   cycle      WeekCycle @relation(fields: [cycleId], references: [id])
   targetUser User?     @relation("Target", fields: [targetUserId], references: [id])
 
+  @@unique([userId, cycleId]) // one chip activation per player per cycle — also closes the activate race
   @@index([cycleId, status]) // queried heavily during chip resolution
   @@map("chip_activations")
 }

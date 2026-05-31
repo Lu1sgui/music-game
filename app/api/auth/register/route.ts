@@ -16,17 +16,27 @@ export async function POST(request: NextRequest) {
     if (password.length < 8)
       return NextResponse.json({ error: 'Password must be at least 8 characters' }, { status: 400 })
 
-    const existing = await prisma.user.findFirst({ where: { OR: [{ email }, { username }] } })
+    const normalizedEmail = String(email).toLowerCase().trim()
+
+    const existing = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: { equals: normalizedEmail, mode: 'insensitive' } },
+          { username: { equals: username, mode: 'insensitive' } },
+        ],
+      },
+    })
     if (existing)
+      // Generic message — don't reveal which of email/username is taken (enumeration)
       return NextResponse.json(
-        { error: existing.email === email ? 'Email already in use' : 'Username already taken' },
+        { error: 'That email or username is already taken' },
         { status: 409 }
       )
 
     const passwordHash = await hashPassword(password)
     const user = await prisma.user.create({
       data: {
-        username, email, passwordHash,
+        username, email: normalizedEmail, passwordHash,
         avatarSeed: avatarSeed ?? username,
         avatarStyle: avatarStyle ?? 'miniavs',
       },
@@ -42,7 +52,10 @@ export async function POST(request: NextRequest) {
         })
         await notifyUser(user.id, `🎁 Welcome to the game! You've received a **${gift.name}** chip as a welcome gift. Use it wisely!`)
       }
-    } catch {}
+    } catch (giftErr: any) {
+      // Non-fatal: account is created even if the welcome gift fails
+      console.error('[register] welcome gift failed:', giftErr?.message ?? giftErr)
+    }
 
     const token = signToken({ userId: user.id, username: user.username, role: user.role })
     return NextResponse.json({

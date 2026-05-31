@@ -1,15 +1,17 @@
 // app/api/admin/reset-password/route.ts
 import { NextRequest, NextResponse } from 'next/server'
+import { randomInt } from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { getTokenPayload, hashPassword } from '@/lib/auth'
 import { sendEmail, tempPasswordEmail } from '@/lib/email'
 import { notifyUser } from '@/lib/notify'
 
 function generateTempPassword(): string {
-  // Memorable: avoid 0/O/1/l/I confusion
+  // Memorable: avoid 0/O/1/l/I confusion. Uses a CSPRNG (crypto.randomInt),
+  // not Math.random(), so the temporary password is not predictable.
   const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789'
   let pwd = ''
-  for (let i = 0; i < 12; i++) pwd += chars[Math.floor(Math.random() * chars.length)]
+  for (let i = 0; i < 12; i++) pwd += chars[randomInt(chars.length)]
   return pwd
 }
 

@@ -40,8 +40,9 @@ export async function GET(request: NextRequest) {
         include: { user: { select: { username: true, avatarSeed: true, avatarStyle: true } } },
         orderBy: { submittedAt: 'asc' },
       })
-      const mySubmission = payload ? await prisma.submission.findUnique({
-        where: { userId_cycleId: { userId: payload.userId, cycleId: cycle.id } },
+      const mySubmission = payload ? await prisma.submission.findFirst({
+        where: { userId: payload.userId, cycleId: cycle.id },
+        orderBy: { slot: 'asc' },
       }) : null
       return NextResponse.json({ ...base, submissions, mySubmission })
     }
@@ -49,8 +50,9 @@ export async function GET(request: NextRequest) {
     // Player context
     let userContext = {}
     if (payload) {
-      const mySubmission = await prisma.submission.findUnique({
-        where: { userId_cycleId: { userId: payload.userId, cycleId: cycle.id } },
+      const mySubmission = await prisma.submission.findFirst({
+        where: { userId: payload.userId, cycleId: cycle.id },
+        orderBy: { slot: 'asc' },
       })
       // Get ALL chip activations for this user this cycle
       const myActivation = await prisma.chipActivation.findFirst({

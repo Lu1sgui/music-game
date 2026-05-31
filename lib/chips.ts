@@ -3,7 +3,10 @@
 // Called by revealCycle — processes all PENDING chip activations in order
 
 import { prisma } from '@/lib/prisma'
-import { ChipEffect, ActivationStatus } from '@prisma/client'
+import { ChipEffect, ActivationStatus, Prisma } from '@prisma/client'
+
+// Accepts either the base client or an interactive-transaction client
+type Db = Prisma.TransactionClient | typeof prisma
 
 // ─── Modifier map — per-user effects accumulated during resolution ─────────────
 
@@ -35,7 +38,8 @@ type Activation = Awaited<ReturnType<typeof prisma.chipActivation.findMany>>[num
 
 export async function resolveChips(
   activations: Activation[],
-  cycleId: number
+  cycleId: number,
+  db: Db = prisma
 ): Promise<Map<number, ChipModifier>> {
   const modifiers = new Map<number, ChipModifier>()
   const cancelled = new Set<number>() // activation IDs
@@ -48,7 +52,7 @@ export async function resolveChips(
   // ── Step 1: HAZE — nuclear option, cancel everything ─────────────────────
   const hazeActivation = activations.find((a) => a.chip.effectType === ChipEffect.HAZE)
   if (hazeActivation) {
-    await prisma.chipActivation.updateMany({
+    await db.chipActivation.updateMany({
       where: { cycleId, status: ActivationStatus.PENDING },
       data: { status: ActivationStatus.CANCELLED, resolvedAt: new Date() },
     })
@@ -70,7 +74,7 @@ export async function resolveChips(
     if (!reflectUsers.has(activation.targetUserId)) continue
 
     cancelled.add(activation.id)
-    await prisma.chipActivation.update({
+    await db.chipActivation.update({
       where: { id: activation.id },
       data: {
         status: ActivationStatus.CANCELLED,
@@ -93,12 +97,12 @@ export async function resolveChips(
 
     if (targetActivation) {
       cancelled.add(targetActivation.id)
-      await prisma.chipActivation.update({
+      await db.chipActivation.update({
         where: { id: targetActivation.id },
         data: { status: ActivationStatus.CANCELLED, resolvedAt: new Date() },
       })
       // Return chip to inventory
-      await prisma.userChip.update({
+      await db.userChip.update({
         where: { userId_chipId: { userId: activation.targetUserId, chipId: targetActivation.chipId } },
         data: { quantity: { increment: 1 } },
       })
@@ -106,7 +110,7 @@ export async function resolveChips(
     }
 
     cancelled.add(activation.id)
-    await prisma.chipActivation.update({
+    await db.chipActivation.update({
       where: { id: activation.id },
       data: { status: ActivationStatus.RESOLVED, resolvedAt: new Date() },
     })
@@ -121,7 +125,14 @@ export async function resolveChips(
     const userMod = mod(activation.userId)
 
     switch (effectType) {
-      // ── Informational / already applied at activation time ───────────────
+      // ── Applied at activation time, nothing to do at reveal ───────────────
+      // FLASH:       lets the activator peek at all submissions while OPEN
+      //              (handled in GET /api/cycle/current via flashActive).
+      // DOUBLE_TEAM: unlocks a 2nd submission slot (handled in POST /submissions).
+      // MIMIC:       copies the target's last chip at activation (activate route).
+      // METRONOME:   rolls a random non-target chip at activation (activate route).
+      // CONFUSE_RAY: currently cosmetic only — no scoring effect is implemented.
+      //              TODO: define its real effect or remove the chip.
       case ChipEffect.FLASH:
       case ChipEffect.CONFUSE_RAY:
       case ChipEffect.DOUBLE_TEAM:
@@ -164,7 +175,7 @@ export async function resolveChips(
       case ChipEffect.LEECH_SEED: {
         if (!activation.targetUserId) break
         // Persist for next 3 weeks via effectData
-        await prisma.chipActivation.update({
+        await db.chipActivation.update({
           where: { id: activation.id },
           data: {
             effectData: { weeksRemaining: 3, targetUserId: activation.targetUserId },
@@ -190,26 +201,19 @@ export async function resolveChips(
 
       case ChipEffect.SPORE: {
         if (!activation.targetUserId) break
-        // Lock target from using chips next cycle
-        const nextCycle = await prisma.weekCycle.findFirst({
-          where: { id: { gt: cycleId } },
-          orderBy: { id: 'asc' },
-        })
-        if (nextCycle) {
-          await prisma.chipActivation.update({
-            where: { id: activation.id },
-            data: {
-              effectData: { lockedCycleId: nextCycle.id, targetUserId: activation.targetUserId },
-            },
-          })
-          console.log(`[chips] Spore: user ${activation.targetUserId} locked from chips next cycle`)
-        }
+        // Lock the target from activating chips during the NEXT cycle.
+        // The next WeekCycle doesn't exist yet at reveal time (it's created AFTER
+        // reveal in the Monday cron), so we don't store its id here. Instead we
+        // record the plant and let isSporeLocked() resolve "the cycle right after
+        // this one" at activation time. Nothing extra to persist — the RESOLVED
+        // activation row with its targetUserId is enough.
+        console.log(`[chips] Spore planted on user ${activation.targetUserId} — locked next cycle`)
         break
       }
 
       case ChipEffect.BIDE:
         // Store the flag — consumed when next chip is activated
-        await prisma.user.update({
+        await db.user.update({
           where: { id: activation.userId },
           data: { bideStored: true },
         })
@@ -230,7 +234,7 @@ export async function resolveChips(
 
     // If this chip consumed a stored Bide (and it wasn't Bide itself), reset the flag
     if (bideActive && effectType !== ChipEffect.BIDE) {
-      await prisma.user.update({
+      await db.user.update({
         where: { id: activation.userId },
         data: { bideStored: false },
       })
@@ -238,52 +242,45 @@ export async function resolveChips(
 
     // Mark as resolved
     if (!cancelled.has(activation.id)) {
-      await prisma.chipActivation.update({
+      await db.chipActivation.update({
         where: { id: activation.id },
         data: { status: ActivationStatus.RESOLVED, resolvedAt: new Date() },
       })
     }
   }
 
-  // ── Step 5: Process persistent Leech Seed from previous cycles ───────────
-  const activeLeechSeeds = await prisma.chipActivation.findMany({
-    where: {
-      status: ActivationStatus.RESOLVED,
-      chip: { effectType: ChipEffect.LEECH_SEED },
-      effectData: { path: ['weeksRemaining'], gt: 0 },
-    },
-    include: { chip: true },
-  })
-
-  for (const seed of activeLeechSeeds) {
-    const data = seed.effectData as { weeksRemaining: number; targetUserId: number } | null
-    if (!data || !data.targetUserId) continue
-
-    // Siphon is applied in revealCycle after cycle points — just flag it here
-    // Decrement weeks remaining
-    const newWeeks = data.weeksRemaining - 1
-    await prisma.chipActivation.update({
-      where: { id: seed.id },
-      data: {
-        effectData: { ...data, weeksRemaining: newWeeks },
-        status: newWeeks <= 0 ? ActivationStatus.RESOLVED : ActivationStatus.RESOLVED,
-      },
-    })
-  }
+  // Persistent Leech Seed siphon + week countdown is handled in revealCycle()
+  // (it needs the cycle's points to be awarded first). See lib/cycle.ts.
 
   return modifiers
 }
 
 // ─── Check if a user is Spore-locked for a given cycle ───────────────────────
+// A Spore planted in cycle N locks the target for cycle N+1 (the very next cycle).
+// We resolve "the cycle right after the plant" at call time, because that cycle
+// does not exist yet when the Spore resolves during reveal.
 
-export async function isSporeLocked(userId: number, cycleId: number): Promise<boolean> {
-  const spore = await prisma.chipActivation.findFirst({
+export async function isSporeLocked(
+  userId: number,
+  cycleId: number,
+  db: Db = prisma
+): Promise<boolean> {
+  const spores = await db.chipActivation.findMany({
     where: {
       status: ActivationStatus.RESOLVED,
       chip: { effectType: ChipEffect.SPORE },
-      effectData: { path: ['lockedCycleId'], equals: cycleId },
       targetUserId: userId,
     },
+    select: { cycleId: true },
   })
-  return spore !== null
+
+  for (const spore of spores) {
+    const nextCycle = await db.weekCycle.findFirst({
+      where: { id: { gt: spore.cycleId } },
+      orderBy: { id: 'asc' },
+      select: { id: true },
+    })
+    if (nextCycle && nextCycle.id === cycleId) return true
+  }
+  return false
 }

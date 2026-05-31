@@ -16,6 +16,7 @@ export default function GMPage() {
   const [cycle, setCycle] = useState<any>(null)
   const [submissions, setSubmissions] = useState<any[]>([])
   const [positions, setPositions] = useState<Record<number, number>>({}) // submissionId → position
+  const [notes, setNotes] = useState<Record<number, string>>({}) // submissionId → GM note
   const [theme, setTheme] = useState('')
   const [themeDesc, setThemeDesc] = useState('')
   const [saving, setSaving] = useState(false)
@@ -52,6 +53,7 @@ export default function GMPage() {
   const saveScores = async () => {
     const results = Object.entries(positions).map(([submissionId, position]) => ({
       submissionId: Number(submissionId), position,
+      gmNotes: notes[Number(submissionId)]?.trim() || undefined,
     }))
     if (results.length === 0) { setMsg('Select at least one position'); return }
     setSaving(true)
@@ -159,6 +161,17 @@ export default function GMPage() {
                       </button>
                     ))}
                   </div>
+                  {/* GM note — only shown once a podium position is picked */}
+                  {myPos && (
+                    <textarea
+                      className="input"
+                      rows={2}
+                      placeholder="Optional note for this pick (shown after reveal)..."
+                      value={notes[sub.id] ?? ''}
+                      onChange={e => setNotes(prev => ({ ...prev, [sub.id]: e.target.value }))}
+                      style={{ resize:'none', marginTop:8, fontSize:'0.82rem' }}
+                    />
+                  )}
                 </div>
               )
             })}

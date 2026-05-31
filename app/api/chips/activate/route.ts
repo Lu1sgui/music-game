@@ -100,11 +100,18 @@ export async function POST(request: NextRequest) {
       effectData = { mimickedChip: lastActivation.chip.slug, originalChipId: chip.id }
     }
 
-    // METRONOME: roll a random chip
+    // METRONOME: roll a random chip. Only roll among chips that DON'T need a
+    // target — Metronome has no target UI, so a targeted roll (Screech, Skull
+    // Bash, Mega Drain, Disable…) would resolve to nothing. This keeps the roll
+    // always useful.
     if (chip.effectType === ChipEffect.METRONOME) {
       const allChips = await prisma.chip.findMany({
-        where: { effectType: { not: ChipEffect.METRONOME } }, // can't roll another Metronome
+        where: {
+          effectType: { not: ChipEffect.METRONOME }, // can't roll another Metronome
+          requiresTarget: false,                     // can't roll a chip that needs a target
+        },
       })
+      if (allChips.length === 0) return err('No chip available to roll for Metronome', 422)
       const rolled = allChips[Math.floor(Math.random() * allChips.length)]
       resolvedChipId = rolled.id
       effectData = { rolledChip: rolled.slug, rolledEffect: rolled.effectType }
@@ -140,8 +147,12 @@ export async function POST(request: NextRequest) {
       activation,
       ...(effectData ? { details: effectData } : {}),
     }, 201)
-  } catch (err: any) {
-    console.error('[app/api/chips/activate/route.ts]', (err as any)?.message ?? err)
+  } catch (e: any) {
+    // Unique violation on (userId, cycleId) — two activate requests raced
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+      return err('You have already activated a chip this week', 409)
+    }
+    console.error('[app/api/chips/activate/route.ts]', e?.message ?? e)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

@@ -181,8 +181,8 @@ async function main() {
   ]
   const c1subs: Record<string, number> = {}
   for (const s of c1songs) {
-    const existing = await prisma.submission.findUnique({
-      where: { userId_cycleId: { userId: s.user.id, cycleId: c1.id } },
+    const existing = await prisma.submission.findFirst({
+      where: { userId: s.user.id, cycleId: c1.id },
     })
     const sub = existing ?? await prisma.submission.create({
       data: { userId: s.user.id, cycleId: c1.id, songTitle: s.title, songArtist: s.artist, platform: s.platform, url: s.url },
@@ -241,8 +241,8 @@ async function main() {
   ]
   const c2subs: Record<string, number> = {}
   for (const s of c2songs) {
-    const existing = await prisma.submission.findUnique({
-      where: { userId_cycleId: { userId: s.user.id, cycleId: c2.id } },
+    const existing = await prisma.submission.findFirst({
+      where: { userId: s.user.id, cycleId: c2.id },
     })
     const sub = existing ?? await prisma.submission.create({
       data: { userId: s.user.id, cycleId: c2.id, songTitle: s.title, songArtist: s.artist, platform: s.platform, url: s.url },
@@ -300,8 +300,8 @@ async function main() {
     { user: analog, title: 'Gasolina',      artist: 'Daddy Yankee', platform: Platform.SPOTIFY, url: 'https://open.spotify.com/track/21jGcNKet2qwijlDFuLiTY' },
   ]
   for (const s of c3songs) {
-    const existing = await prisma.submission.findUnique({
-      where: { userId_cycleId: { userId: s.user.id, cycleId: c3.id } },
+    const existing = await prisma.submission.findFirst({
+      where: { userId: s.user.id, cycleId: c3.id },
     })
     if (!existing) {
       await prisma.submission.create({
