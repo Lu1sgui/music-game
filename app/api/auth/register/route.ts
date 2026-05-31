@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
 
     // 🎁 Welcome gift: random common chip
     try {
-      const commonChips = await prisma.chip.findMany({ where: { rarity: 'COMMON' } })
+      const commonChips = await prisma.chip.findMany({ where: { rarity: 'COMMON', enabled: true } })
       if (commonChips.length > 0) {
         const gift = commonChips[Math.floor(Math.random() * commonChips.length)]
         await prisma.userChip.create({

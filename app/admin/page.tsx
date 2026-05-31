@@ -7,9 +7,14 @@ import { Zap, RotateCcw, UserCheck, RefreshCw } from 'lucide-react'
 import { useAuth, useApi } from '../context/AuthContext'
 
 const CHIP_SLUGS = [
+  // Original
   'flash','smokescreen','substitute','recover','swift','haze','night-shade',
   'swords-dance','double-team','disable','reflect','mimic','confuse-ray','leech-seed',
   'mega-drain','screech','metronome','spore','bide','skull-bash',
+  // Expansion (enabled)
+  'cushion','spotlight','insight','gamble','foresight','amnesty',
+  'toxic','payday','protect','bounty','cleanse','mirror-coat',
+  'usurp','earthquake','time-bomb','curse',
 ]
 
 const CYCLE_ACTIONS: Record<string, { label: string; next: string; color: string }> = {

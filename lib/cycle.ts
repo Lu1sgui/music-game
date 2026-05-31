@@ -254,7 +254,7 @@ async function processParticipationDrop(userId: number, streakWeeks: number, db:
   const roll = Math.random()
   const rarity = roll < 0.6 ? 'COMMON' : roll < 0.9 ? 'RARE' : 'LEGENDARY'
 
-  const chips = await db.chip.findMany({ where: { rarity } })
+  const chips = await db.chip.findMany({ where: { rarity, enabled: true } })
   if (chips.length === 0) return
 
   const chip = chips[Math.floor(Math.random() * chips.length)]
