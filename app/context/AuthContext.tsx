@@ -126,11 +126,28 @@ export function useAuth() {
 }
 
 export function useApi() {
-  const { token } = useAuth()
+  const { token, logout } = useAuth()
   const h = () => ({ 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) })
+
+  // Centralised response handling. An expired/invalid token (401) clears the
+  // stale session and bounces the user to /login instead of surfacing a raw
+  // "Unauthorized" string mid-action. JWTs expire after 7 days (lib/auth.ts),
+  // so without this the user looks logged in but every write silently fails.
+  const handle = async (res: Response) => {
+    if (res.status === 401) {
+      logout()
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login?expired=1'
+      }
+      return { error: 'Your session expired — please log in again.' }
+    }
+    const text = await res.text()
+    return text ? JSON.parse(text) : {}
+  }
+
   return {
-    get:   (path: string) => fetch(path, { headers: h() }).then(r => r.json()),
-    post:  (path: string, data?: unknown) => fetch(path, { method: 'POST',  headers: h(), body: JSON.stringify(data) }).then(r => r.json()),
-    patch: (path: string, data?: unknown) => fetch(path, { method: 'PATCH', headers: h(), body: JSON.stringify(data) }).then(r => r.json()),
+    get:   (path: string) => fetch(path, { headers: h() }).then(handle),
+    post:  (path: string, data?: unknown) => fetch(path, { method: 'POST',  headers: h(), body: JSON.stringify(data) }).then(handle),
+    patch: (path: string, data?: unknown) => fetch(path, { method: 'PATCH', headers: h(), body: JSON.stringify(data) }).then(handle),
   }
 }
