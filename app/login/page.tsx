@@ -1,6 +1,6 @@
 'use client'
 // app/login/page.tsx
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '../context/AuthContext'
 
@@ -9,7 +9,15 @@ export default function LoginPage() {
   const router = useRouter()
   const [form, setForm] = useState({ email: '', password: '' })
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Set by useApi() when a token expires mid-session (?expired=1).
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has('expired')) {
+      setNotice('Your session expired — please log in again.')
+    }
+  }, [])
 
   const handle = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -44,6 +52,14 @@ export default function LoginPage() {
           <h2 className="font-title" style={{ fontSize: '1.3rem', marginBottom: '1rem', textAlign: 'center' }}>
             LOGIN
           </h2>
+
+          {notice && (
+            <div style={{ padding: '10px 14px', marginBottom: '1rem',
+                          background: 'rgba(255,209,102,.1)', border: '1px solid var(--yellow)',
+                          borderRadius: 4, fontSize: '0.85rem', color: 'var(--yellow)' }}>
+              {notice}
+            </div>
+          )}
 
           <div style={{ marginBottom: '0.75rem' }}>
             <label className="label">Email</label>
