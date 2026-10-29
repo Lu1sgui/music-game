@@ -61,7 +61,7 @@ npm run db:demo               # optional: demo players, cycles and submissions
 npm run dev                   # http://localhost:3000
 ```
 
-The demo seed prints the demo accounts it creates (all local only, password `demo1234`). The manual at `/manual` works without logging in.
+The demo seed prints the demo accounts it creates (local database only; credentials are in `prisma/demo-seed.ts`). The manual at `/manual` works without logging in.
 
 Other scripts: `npm run db:studio` (browse the data), `npm run db:reset` (wipe game data and start a fresh cycle).
 
